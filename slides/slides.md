@@ -1018,3 +1018,194 @@ Task<bool> loadSamplesAsync() {
 </div>
 
 <div v-click="4" class="takeaway">The control-flow plumbing moved out of the feature code and into one reusable abstraction.</div>
+
+---
+
+# Did anyone spot the other difference?
+
+<div class="code-compare task-kind-question" :class="{ 'show-task-kinds': $clicks >= 1 }">
+<div>
+
+<div class="eyebrow">Background work</div>
+
+```cpp
+Task<PreparedSamplerTree> prepareSamplerTree(...) {
+    co_await ScheduleOn{workers};
+    co_return buildExpensiveSamplerTree(...);
+}
+```
+
+</div>
+<div>
+
+<div class="eyebrow">Plugin workflow</div>
+
+```cpp
+MainActorTask loadPreset(...) {
+    auto tree = co_await prepareSamplerTree(...);
+    sampler.installSamplerTree(std::move(tree));
+}
+```
+
+</div>
+</div>
+
+<div v-click="1" class="task-kind-answer">
+  <code>Task&lt;T&gt;</code>
+  <span>versus</span>
+  <code>MainActorTask</code>
+</div>
+
+<div v-click="2" class="takeaway">They carry different execution contracts.</div>
+
+---
+
+# Why give the plugin workflow a home?
+
+<div class="code-compare main-actor-motivation">
+<div>
+
+```cpp
+MainActorTask loadPreset(...) {
+    app.setLoading(true);
+    app.loadMixerState(preset);
+
+    auto tree = co_await
+        prepareSamplerTree(...);
+
+    sampler.installSamplerTree(tree);
+    app.notifyPresetLoaded();
+}
+```
+
+</div>
+<div class="motivation-stack">
+  <div v-click="1">
+    <h3>That is where the plugin already lives</h3>
+    <p>Host callbacks, editors, and much of the plugin state are main-thread-bound.</p>
+  </div>
+  <div v-click="2">
+    <h3>Only the expensive part needs to leave</h3>
+    <p><code>prepareSamplerTree()</code> can move to a worker without moving the whole workflow there.</p>
+  </div>
+</div>
+</div>
+
+<div v-click="3" class="takeaway">Keep the orchestration at home; explicitly send only the heavy work away.</div>
+
+---
+
+# <code>MainActorTask</code> makes affinity the default
+
+<div class="actor-execution-flow">
+  <div class="execution-lane main-lane">
+    <div class="lane-label">Main actor</div>
+    <div v-click="1" class="lane-step"><code>loadPreset()</code><span>touch plugin state</span></div>
+    <div v-click="3" class="lane-step resumed-step"><code>continue after co_await</code><span>touch plugin state again</span></div>
+  </div>
+
+  <div class="actor-trip">
+    <div v-click="2" class="trip-arrow">↘ <code>co_await</code></div>
+    <div v-click="3" class="trip-arrow return-trip"><code>resume on main</code> ↖</div>
+  </div>
+
+  <div class="execution-lane worker-lane">
+    <div class="lane-label">Worker pool</div>
+    <div v-click="2" class="lane-step"><code>prepareSamplerTree()</code><span>build expensive tree</span></div>
+  </div>
+</div>
+
+<div v-click="4" class="actor-contract">
+  <code>MainActorTask</code>
+  <span>Every continuation of this coroutine is routed back to the serialized main actor.</span>
+</div>
+
+<div v-click="5" class="takeaway">The return type turns “remember to get back to main” into a reusable guarantee.</div>
+
+---
+
+# The cozy part: main-owned state is serialized
+
+<div class="code-compare actor-safety">
+<div class="actor-region-code" :class="{
+  'show-first-region': $clicks === 1,
+  'show-suspension-boundary': $clicks === 2,
+  'show-second-region': $clicks >= 3,
+}">
+
+```cpp
+MainActorTask loadPreset(...) {
+    app.setLoading(true);
+    auto mixer = app.mixerSnapshot();
+
+    auto tree = co_await prepareSamplerTree(...);
+
+    sampler.installSamplerTree(tree);
+    sampler.rebuildKeySwitchMap();
+    app.setLoading(false);
+}
+```
+
+</div>
+<div class="actor-safety-notes">
+  <div v-click="1" class="safe-region-note"><strong>One uninterrupted main-actor region</strong><span>No other main-actor task interleaves here.</span></div>
+  <div v-click="2" class="suspension-note"><strong><code>co_await</code> is the boundary</strong><span>Other main-actor work may run while this task is suspended.</span></div>
+  <div v-click="3" class="safe-region-note"><strong>Then another serialized region</strong><span>After resumption, ordinary main-owned state needs no extra locking.</span></div>
+</div>
+</div>
+
+<div v-click="4" class="takeaway">For state confined to the main actor, the task body is a sequence of race-free regions separated by visible suspension points.</div>
+
+---
+
+# Remember this line in <code>promise_type</code>?
+
+<div class="code-compare await-transform-recall">
+<div class="promise-transform-code" :class="{ 'highlight-await-transform': $clicks >= 1 }">
+
+```cpp
+struct MainActorTask::promise_type {
+    MainActorTask get_return_object();
+    auto initial_suspend();
+    auto final_suspend();
+    void return_void();
+    void unhandled_exception();
+
+    template<class Awaitable>
+    auto await_transform(Awaitable&&);
+};
+```
+
+<div v-click="1" class="transform-caption">Every <code>co_await</code> in this coroutine passes through this hook.</div>
+
+</div>
+<div>
+
+<div v-click="2" class="conceptual-transform">
+  <div class="eyebrow">Conceptually</div>
+
+```cpp
+template<class Awaitable>
+auto promise_type::await_transform(
+        Awaitable&& operation) {
+    return ResumeOnMain{
+        std::forward<Awaitable>(operation)
+    };
+}
+```
+
+  <p>The returned wrapper implements the affinity—not the hook by itself.</p>
+</div>
+
+</div>
+</div>
+
+<div v-click="3" class="await-transform-flow">
+  <span>operation finishes<br><small>worker</small></span>
+  <b>→</b>
+  <span>wrapped awaiter posts continuation<br><small>main queue</small></span>
+  <b>→</b>
+  <span>coroutine resumes<br><small>main actor</small></span>
+</div>
+
+<div v-click="4" class="takeaway"><code>await_transform</code> lets the return type apply one resumption policy to every suspension point.</div>
