@@ -1357,7 +1357,7 @@ root.shutdown_and_wait();
 
 <div v-click="4" class="close-effects">
   <span>request stop for the entire tree</span>
-  <span>drain every outstanding continuation</span>
+  <span>wait until every owned task has completed and unwound</span>
   <span>destroy frames only after completion</span>
 </div>
 
@@ -1371,3 +1371,105 @@ root.shutdown_and_wait();
 </div>
 
 <div v-click="6" class="takeaway">Child handles only need to close their branch. The root guarantees that nothing survives plugin teardown.</div>
+
+---
+
+# <code>close()</code> is a request—not a wrecking ball
+
+<div class="close-request-call">
+
+```cpp
+loading.close();
+```
+
+</div>
+
+<div class="close-request-flow">
+  <div v-click="1"><code>TaskHandle</code><span>close this subtree</span></div>
+  <b v-click="2">→</b>
+  <div v-click="2" class="stop-request-node"><code>stop requested</code><span>task + descendants</span></div>
+  <b v-click="3">→</b>
+  <div v-click="3"><code>close()</code> returns<span>caller keeps running</span></div>
+</div>
+
+<div v-click="4" class="close-does-not-grid">
+  <div><strong>Does not kill a thread</strong><span>Running code is not interrupted.</span></div>
+  <div><strong>Does not destroy a frame</strong><span>Suspended state remains alive.</span></div>
+  <div><strong>Does not mean “finished”</strong><span>The subtree still has to cooperate.</span></div>
+</div>
+
+<div v-click="5" class="takeaway"><code>close()</code> changes cancellation state. The task decides when that state affects control flow.</div>
+
+---
+
+# Cancellation is cooperative
+
+<div class="code-compare cooperative-cancellation">
+<div class="cooperative-code" :class="{
+  'show-stop-token': $clicks === 1,
+  'show-cancellable-wait': $clicks === 2,
+  'show-stop-check': $clicks === 3,
+  'show-publication': $clicks >= 4,
+}">
+
+```cpp
+MainActorTask loadPreset(...) {
+    auto stop = co_await affine::this_task::stop_token;
+
+    auto samples = co_await loadSamples(...);
+
+    if (stop.stop_requested())
+        co_return;
+
+    sampler.installSamples(std::move(samples));
+}
+```
+
+</div>
+<div class="cooperation-notes">
+  <div v-click="1"><strong>Observe</strong><span>The token is a view of this task’s inherited cancellation state.</span></div>
+  <div v-click="2"><strong>Cooperate early</strong><span>Child tasks inherit the request; cancellation-aware waits may finish early.</span></div>
+  <div v-click="3"><strong>Check after the final wait</strong><span>Even a non-cancellable operation can finish without publishing stale work.</span></div>
+  <div v-click="4"><strong>Publish safely</strong><span>No suspension separates the check from this main-actor state change.</span></div>
+</div>
+</div>
+
+<div v-click="5" class="takeaway">A stop request becomes cancellation only at a cooperation point.</div>
+
+---
+
+# Cancellation leaves through the front door
+
+<div class="cancellation-exit-code">
+
+```cpp
+MainActorTask loadPreset(...) {
+    ScopeExit finish([&] {
+        app.setLoading(false);
+    });
+
+    auto stop = co_await affine::this_task::stop_token;
+    auto samples = co_await loadSamples(...);
+
+    if (stop.stop_requested())
+        co_return;
+
+    sampler.installSamples(std::move(samples));
+}
+```
+
+</div>
+
+<div class="cancellation-exit-flow">
+  <span v-click="1">stop observed</span>
+  <b v-click="2">→</b>
+  <span v-click="2"><code>co_return</code></span>
+  <b v-click="3">→</b>
+  <span v-click="3">locals + RAII cleanup</span>
+  <b v-click="4">→</b>
+  <span v-click="4"><code>final_suspend()</code></span>
+  <b v-click="5">→</b>
+  <span v-click="5">scope releases completed frame</span>
+</div>
+
+<div v-click="6" class="takeaway">Cancellation preserves structured exit: cleanup first, frame destruction only after completion.</div>
