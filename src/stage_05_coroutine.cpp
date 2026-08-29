@@ -8,7 +8,8 @@
 using MainActorTask = affine::affine_task<void, affine::main_thread_executor>;
 
 template <class WorkerScheduler>
-MainActorTask loadPreset(demo::App &app, demo::Preset preset, WorkerScheduler worker) {
+MainActorTask loadPreset(demo::App &app, demo::Sampler &sampler, demo::Preset preset,
+                         WorkerScheduler worker) {
     app.setLoading(true);
     demo::ScopeExit stopLoading([&] { app.setLoading(false); });
 
@@ -18,18 +19,20 @@ MainActorTask loadPreset(demo::App &app, demo::Preset preset, WorkerScheduler wo
     auto tree =
         co_await demo::prepareSamplerTree(std::move(preset), std::move(mixer), worker);
 
-    app.installSamplerTree(std::move(tree));
-    app.rebuildKeySwitchMap();
+    sampler.installSamplerTree(tree);
+    sampler.rebuildKeySwitchMap();
 
-    auto location = co_await demo::askUserToLocateSamples(app.missingSamples(), worker);
+    auto location =
+        co_await demo::askUserToLocateSamples(sampler.missingSamples(), worker);
     auto samples = co_await demo::loadSamples(std::move(location), worker);
 
-    app.installSamples(std::move(samples));
+    sampler.installSamples(std::move(samples));
     app.notifyPresetLoaded();
 }
 
 int main() {
     demo::App app;
+    demo::Sampler sampler;
     demo::HostQueue hostQueue;
     exec::static_thread_pool workers(2);
 
@@ -38,8 +41,8 @@ int main() {
         [&](std::function<void()> callback) { hostQueue.post(std::move(callback)); },
         [&](std::function<bool()> done) { hostQueue.pumpUntil(std::move(done)); });
 
-    auto task = loadPreset(app, demo::concertGrand(), workers.get_scheduler());
+    auto task = loadPreset(app, sampler, demo::concertGrand(), workers.get_scheduler());
     affine::sync_wait(std::move(task).scheduleOn(mainActor));
 
-    return app.qaCheck("Concert Grand") ? 0 : 1;
+    return app.qaCheck("Concert Grand", sampler) ? 0 : 1;
 }

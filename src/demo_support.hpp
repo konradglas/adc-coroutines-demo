@@ -73,6 +73,29 @@ class ScopeExit {
     std::function<void()> _cleanup;
 };
 
+class Sampler {
+  public:
+    Sampler();
+
+    void installSamplerTree(const PreparedSamplerTree &tree);
+    void rebuildKeySwitchMap();
+    [[nodiscard]] MissingSamplesRequest missingSamples() const;
+    void installSamples(LoadedSamples samples);
+
+  private:
+    friend class App;
+
+    void requireMainThread() const;
+
+    std::thread::id _mainThread;
+    std::string _samplerPreset = "Initial preset";
+    std::string _keySwitchPreset = "Initial preset";
+    std::string _samplesPreset = "Initial preset";
+    std::string _missingLibrary = "Initial Library";
+    std::vector<std::string> _missingSamples{"Initial.sample"};
+    std::vector<std::string> _articulations;
+};
+
 class App {
   public:
     App();
@@ -81,14 +104,10 @@ class App {
     void loadMixerState(const Preset &preset);
     [[nodiscard]] MixerSnapshot mixerSnapshot() const;
 
-    void installSamplerTree(PreparedSamplerTree tree);
-    void rebuildKeySwitchMap();
-    [[nodiscard]] MissingSamplesRequest missingSamples() const;
-    void installSamples(LoadedSamples samples);
-
     void notifyPresetLoaded();
     void notifyPresetLoadFailed();
-    [[nodiscard]] bool qaCheck(const std::string &expectedPreset) const;
+    [[nodiscard]] bool qaCheck(const std::string &expectedPreset,
+                               const Sampler &sampler) const;
 
   private:
     void requireMainThread() const;
@@ -96,13 +115,7 @@ class App {
     std::thread::id _mainThread;
     bool _loading = false;
     std::string _mixerPreset = "Initial preset";
-    std::string _samplerPreset = "Initial preset";
-    std::string _keySwitchPreset = "Initial preset";
-    std::string _samplesPreset = "Initial preset";
-    std::string _missingLibrary = "Initial Library";
-    std::vector<std::string> _missingSamples{"Initial.sample"};
     std::vector<std::string> _activeMicrophones;
-    std::vector<std::string> _articulations;
 };
 
 PreparedSamplerTree prepareSamplerTree(Preset preset, MixerSnapshot mixer);

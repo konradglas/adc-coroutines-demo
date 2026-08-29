@@ -1,7 +1,7 @@
 #include "demo_support.hpp"
 
-void loadPreset(demo::App &app, demo::CallbackWorkers &workers, demo::Preset preset,
-                bool &samplerFinished) {
+void loadPreset(demo::App &app, demo::Sampler &sampler, demo::CallbackWorkers &workers,
+                demo::Preset preset, bool &samplerFinished) {
     app.setLoading(true);
     demo::ScopeExit stopLoading([&] { app.setLoading(false); });
 
@@ -10,27 +10,28 @@ void loadPreset(demo::App &app, demo::CallbackWorkers &workers, demo::Preset pre
 
     workers.run([preset, mixer] { return demo::prepareSamplerTree(preset, mixer); },
                 [&](demo::PreparedSamplerTree tree) {
-                    app.installSamplerTree(std::move(tree));
+                    sampler.installSamplerTree(tree);
                     app.notifyPresetLoaded(); // Fires again. Surely harmless.
                     samplerFinished = true;
                 });
 
     // These statements still run now, not when loadSamplerAsync finishes.
-    app.rebuildKeySwitchMap();
-    auto location = demo::askUserToLocateSamples(app.missingSamples());
+    sampler.rebuildKeySwitchMap(); // Reads the tree currently installed in sampler.
+    auto location = demo::askUserToLocateSamples(sampler.missingSamples());
     auto samples = demo::loadSamples(std::move(location));
-    app.installSamples(std::move(samples));
+    sampler.installSamples(std::move(samples));
     app.notifyPresetLoaded();
 }
 
 int main() {
     demo::App app;
+    demo::Sampler sampler;
     demo::HostQueue mainQueue;
     demo::CallbackWorkers workers(mainQueue);
     auto preset = demo::concertGrand();
     bool samplerFinished = false;
 
-    loadPreset(app, workers, preset, samplerFinished);
+    loadPreset(app, sampler, workers, preset, samplerFinished);
     mainQueue.pumpUntil([&] { return samplerFinished; });
-    return app.qaCheck(preset.name) ? 0 : 1;
+    return app.qaCheck(preset.name, sampler) ? 0 : 1;
 }

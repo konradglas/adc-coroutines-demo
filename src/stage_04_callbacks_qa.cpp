@@ -4,8 +4,8 @@
 
 class PresetLoader : public std::enable_shared_from_this<PresetLoader> {
   public:
-    PresetLoader(demo::App &app, demo::CallbackWorkers &workers)
-        : _app(app), _workers(workers) {}
+    PresetLoader(demo::App &app, demo::Sampler &sampler, demo::CallbackWorkers &workers)
+        : _app(app), _sampler(sampler), _workers(workers) {}
 
     void loadPreset(demo::Preset preset) {
         _stopSource.request_stop();
@@ -50,10 +50,10 @@ class PresetLoader : public std::enable_shared_from_this<PresetLoader> {
         if (!continueRequest(result))
             return;
 
-        _app.installSamplerTree(std::move(*result.value));
-        _app.rebuildKeySwitchMap();
+        _sampler.installSamplerTree(*result.value);
+        _sampler.rebuildKeySwitchMap();
 
-        const auto missingSamples = _app.missingSamples();
+        const auto missingSamples = _sampler.missingSamples();
         _workers.run(
             [missingSamples, token]() mutable {
                 demo::OperationResult<demo::SampleLibraryLocation> result;
@@ -105,7 +105,7 @@ class PresetLoader : public std::enable_shared_from_this<PresetLoader> {
         if (!continueRequest(result))
             return;
 
-        _app.installSamples(std::move(*result.value));
+        _sampler.installSamples(std::move(*result.value));
         _app.notifyPresetLoaded();
         finishRequest();
     }
@@ -131,6 +131,7 @@ class PresetLoader : public std::enable_shared_from_this<PresetLoader> {
     }
 
     demo::App &_app;
+    demo::Sampler &_sampler;
     demo::CallbackWorkers &_workers;
     std::stop_source _stopSource;
     std::uint64_t _currentRequest = 0;
@@ -139,13 +140,14 @@ class PresetLoader : public std::enable_shared_from_this<PresetLoader> {
 
 int main() {
     demo::App app;
+    demo::Sampler sampler;
     demo::HostQueue mainQueue;
     demo::CallbackWorkers workers(mainQueue);
-    auto loader = std::make_shared<PresetLoader>(app, workers);
+    auto loader = std::make_shared<PresetLoader>(app, sampler, workers);
 
     loader->loadPreset(demo::concertGrand());
     loader->loadPreset(demo::chamberStrings()); // QA clicks another preset quickly.
 
     mainQueue.pumpUntil([&] { return loader->finished(); });
-    return app.qaCheck("Chamber Strings") ? 0 : 1;
+    return app.qaCheck("Chamber Strings", sampler) ? 0 : 1;
 }

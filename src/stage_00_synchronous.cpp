@@ -1,6 +1,6 @@
 #include "demo_support.hpp"
 
-void loadPreset(demo::App &app, demo::Preset preset) {
+void loadPreset(demo::App &app, demo::Sampler &sampler, demo::Preset preset) {
     app.setLoading(true);
     demo::ScopeExit stopLoading([&] { app.setLoading(false); });
 
@@ -9,20 +9,21 @@ void loadPreset(demo::App &app, demo::Preset preset) {
 
     auto tree = demo::prepareSamplerTree(std::move(preset), std::move(mixer));
 
-    app.installSamplerTree(std::move(tree));
-    app.rebuildKeySwitchMap();
+    sampler.installSamplerTree(tree);
+    sampler.rebuildKeySwitchMap();
 
-    auto location = demo::askUserToLocateSamples(app.missingSamples());
+    auto location = demo::askUserToLocateSamples(sampler.missingSamples());
     auto samples = demo::loadSamples(std::move(location));
 
-    app.installSamples(std::move(samples));
+    sampler.installSamples(std::move(samples));
     app.notifyPresetLoaded();
 }
 
 int main() {
     demo::App app;
+    demo::Sampler sampler;
     auto preset = demo::concertGrand();
 
-    loadPreset(app, preset);
-    return app.qaCheck(preset.name) ? 0 : 1;
+    loadPreset(app, sampler, preset);
+    return app.qaCheck(preset.name, sampler) ? 0 : 1;
 }

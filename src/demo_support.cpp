@@ -56,6 +56,39 @@ App::App() : _mainThread(std::this_thread::get_id()) {
     applicationMainThread = _mainThread;
 }
 
+Sampler::Sampler() : _mainThread(std::this_thread::get_id()) {}
+
+void Sampler::installSamplerTree(const PreparedSamplerTree &tree) {
+    requireMainThread();
+    _samplerPreset = tree.presetName;
+    _articulations = tree.articulations;
+    _missingLibrary = tree.missingLibrary;
+    _missingSamples = tree.missingSamples;
+    print("main", "installed sampler tree: " + _samplerPreset);
+}
+
+void Sampler::rebuildKeySwitchMap() {
+    requireMainThread();
+    _keySwitchPreset = _samplerPreset;
+    print("main", "key-switch map now points at: " + _keySwitchPreset);
+}
+
+MissingSamplesRequest Sampler::missingSamples() const {
+    requireMainThread();
+    return {_samplerPreset, _missingLibrary, _missingSamples};
+}
+
+void Sampler::installSamples(LoadedSamples samples) {
+    requireMainThread();
+    _samplesPreset = std::move(samples.presetName);
+    print("main", "installed " + std::to_string(samples.count) + " sample files");
+}
+
+void Sampler::requireMainThread() const {
+    if (std::this_thread::get_id() != _mainThread)
+        throw std::logic_error("sampler state escaped the main thread");
+}
+
 void App::setLoading(bool loading) {
     requireMainThread();
     _loading = loading;
@@ -74,32 +107,6 @@ MixerSnapshot App::mixerSnapshot() const {
     return {_mixerPreset, _activeMicrophones};
 }
 
-void App::installSamplerTree(PreparedSamplerTree tree) {
-    requireMainThread();
-    _samplerPreset = std::move(tree.presetName);
-    _articulations = std::move(tree.articulations);
-    _missingLibrary = std::move(tree.missingLibrary);
-    _missingSamples = std::move(tree.missingSamples);
-    print("main", "installed sampler tree: " + _samplerPreset);
-}
-
-void App::rebuildKeySwitchMap() {
-    requireMainThread();
-    _keySwitchPreset = _samplerPreset;
-    print("main", "key-switch map now points at: " + _keySwitchPreset);
-}
-
-MissingSamplesRequest App::missingSamples() const {
-    requireMainThread();
-    return {_samplerPreset, _missingLibrary, _missingSamples};
-}
-
-void App::installSamples(LoadedSamples samples) {
-    requireMainThread();
-    _samplesPreset = std::move(samples.presetName);
-    print("main", "installed " + std::to_string(samples.count) + " sample files");
-}
-
 void App::notifyPresetLoaded() {
     requireMainThread();
     print("main", "PresetLoaded: GUI may inspect the preset");
@@ -110,17 +117,19 @@ void App::notifyPresetLoadFailed() {
     print("main", "PresetLoadFailed");
 }
 
-bool App::qaCheck(const std::string &expectedPreset) const {
+bool App::qaCheck(const std::string &expectedPreset, const Sampler &sampler) const {
     requireMainThread();
+    sampler.requireMainThread();
     const bool consistent = !_loading && _mixerPreset == expectedPreset &&
-                            _samplerPreset == expectedPreset &&
-                            _keySwitchPreset == expectedPreset &&
-                            _samplesPreset == expectedPreset;
+                            sampler._samplerPreset == expectedPreset &&
+                            sampler._keySwitchPreset == expectedPreset &&
+                            sampler._samplesPreset == expectedPreset;
 
     print("QA", consistent ? "PASS: every subsystem contains " + expectedPreset
-                           : "FAIL: mixer=" + _mixerPreset + ", sampler=" +
-                                 _samplerPreset + ", key-switches=" + _keySwitchPreset +
-                                 ", samples=" + _samplesPreset +
+                           : "FAIL: mixer=" + _mixerPreset +
+                                 ", sampler=" + sampler._samplerPreset +
+                                 ", key-switches=" + sampler._keySwitchPreset +
+                                 ", samples=" + sampler._samplesPreset +
                                  ", loading=" + (_loading ? "true" : "false"));
     return consistent;
 }

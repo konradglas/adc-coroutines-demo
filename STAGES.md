@@ -3,11 +3,18 @@
 The demo follows one preset load as it evolves from correct synchronous code into
 callback-driven asynchronous code and finally back into linear coroutine code.
 
-`demo::App` represents application state owned by the main thread. Its mutating
-operations verify that they are called from that thread. `CallbackWorkers` performs
-work on background threads and posts completion callbacks to the simulated main queue.
-The user interaction is simulated, but it has the same completion shape as an
-asynchronous file dialog in a GUI application.
+`demo::App` represents GUI and mixer state owned by the main thread. `demo::Sampler`
+represents the live sampler, which is also tightly bound to the main thread. Their
+mutating operations verify that they are called from that thread. `CallbackWorkers`
+performs work on background threads and posts completion callbacks to the simulated
+main queue. The user interaction is simulated, but it has the same completion shape as
+an asynchronous file dialog in a GUI application.
+
+The sampler deliberately exposes a subtle dependency from the real architecture:
+`rebuildKeySwitchMap()` takes no tree argument. It derives the map from the sampler tree
+that is already installed. Correctness therefore depends on installing the new tree
+before rebuilding the map, even though that dependency is not visible in the function
+signature.
 
 Two executables intentionally return failure. CTest marks those as `WILL_FAIL`; their
 failures are the behavior being demonstrated, not undefined behavior or test flakiness.
@@ -19,9 +26,9 @@ Source: [`src/stage_00_synchronous.cpp`](src/stage_00_synchronous.cpp)
 ### What I think is happening
 
 The preset load is straightforward and correct. Mixer state is applied, the sampler
-tree is prepared and installed, the key-switch map is rebuilt, the user locates the
-missing sample library, and those samples are loaded. `PresetLoaded` is sent only when
-everything is ready.
+tree is prepared and installed into the live sampler, the sampler rebuilds its
+key-switch map, the user locates the missing sample library, and those samples are
+loaded. `PresetLoaded` is sent only when everything is ready.
 
 The loading indicator is protected by `ScopeExit`, so it is cleared on normal return,
 early return, or exception.
@@ -39,7 +46,8 @@ events.
 
 ### What it demonstrates
 
-- Statement order directly expresses every dependency.
+- Statement order directly expresses every dependency, including the implicit one
+  between installing the sampler tree and rebuilding its derived key-switch map.
 - Function return means the complete operation has finished.
 - Errors and cleanup follow ordinary C++ control flow and RAII.
 - Correct synchronous code can still be unacceptable in an interactive application.
@@ -60,7 +68,8 @@ extra notification seems harmless.
 ### What is actually happening / QA
 
 `workers.run()` starts an operation and returns immediately. The following statements
-do not wait for its callback:
+do not wait for its callback. In particular, `rebuildKeySwitchMap()` reads the live
+sampler's current tree; it does not know that a replacement tree is being prepared:
 
 - The key-switch map is rebuilt from the initial sampler tree.
 - The missing-sample query examines the initial tree and asks for the initial library.
@@ -76,6 +85,8 @@ QA now sees the new mixer and sampler alongside the old key-switch and sample st
 
 - Starting asynchronous work does not preserve the dependency represented by the next
   source-code statement.
+- Main-thread affinity prevents data races on the sampler, but it does not make the
+  installed tree the logically correct version.
 - A lexical guard cannot cover work that outlives its scope.
 - A notification called “loaded” becomes ambiguous once completion is fragmented.
 - This is a deterministic ordering bug; no data race is required.
@@ -206,7 +217,7 @@ The final `loadPreset()` reads like the synchronous version again:
 
 1. Apply main-owned mixer state.
 2. Await sampler preparation on a worker.
-3. Install the tree and inspect main-owned derived state.
+3. Install the tree into the main-thread-bound sampler and rebuild its derived state.
 4. Await the user's library selection.
 5. Await sample loading on a worker.
 6. Install the samples and notify the GUI.
@@ -243,9 +254,9 @@ talk.
 
 - `co_await` restores visible data dependencies without blocking the main thread.
 - Locals and RAII guards live across suspension in the coroutine frame.
-- The main-actor task owns application mutation; awaited work exchanges self-contained
-  values with it.
+- The main-actor task owns mutation of both the application and the live sampler;
+  awaited work exchanges self-contained values with it.
 - Main-actor affinity removes accidental cross-thread state access, but suspension still
   permits logical interleaving with other main-actor tasks.
-- Coroutines make the rejected missing-sample feature look like its product requirements
-rather than its scheduling implementation.
+- Coroutines make the rejected missing-sample feature look like its product
+  requirements rather than its scheduling implementation.

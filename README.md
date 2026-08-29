@@ -14,9 +14,10 @@ Each executable is one slide-sized stage:
 5. `stage_04_callbacks_qa` — replacement, cancellation, lifetime, error, and cleanup policy accumulate around the callbacks.
 6. `stage_05_coroutine` — `stdexec-affine` restores the linear main-actor workflow while `stdexec` runs preparation on a worker pool.
 
-The complete load prepares the sampler tree on a worker, installs it and discovers
-missing samples on main, waits for the user to locate the library, loads those samples
-on a worker, then returns to main for final publication.
+The complete load prepares the sampler tree on a worker, installs it into the
+main-thread-bound sampler and discovers missing samples on main, waits for the user to
+locate the library, loads those samples on a worker, then returns to main for final
+publication.
 
 ## Build
 

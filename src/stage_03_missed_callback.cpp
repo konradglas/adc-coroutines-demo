@@ -1,17 +1,17 @@
 #include "demo_support.hpp"
 
-void loadPreset(demo::App &app, demo::CallbackWorkers &workers, demo::Preset preset,
-                bool &dialogReturned, bool &finished) {
+void loadPreset(demo::App &app, demo::Sampler &sampler, demo::CallbackWorkers &workers,
+                demo::Preset preset, bool &dialogReturned, bool &finished) {
     app.setLoading(true);
     app.loadMixerState(preset);
     const auto mixer = app.mixerSnapshot();
 
     workers.run([preset, mixer] { return demo::prepareSamplerTree(preset, mixer); },
                 [&](demo::PreparedSamplerTree tree) {
-                    app.installSamplerTree(std::move(tree));
-                    app.rebuildKeySwitchMap();
+                    sampler.installSamplerTree(tree);
+                    sampler.rebuildKeySwitchMap();
 
-                    const auto missingSamples = app.missingSamples();
+                    const auto missingSamples = sampler.missingSamples();
                     std::stop_source dialog;
                     dialog.request_stop(); // The user presses Cancel.
 
@@ -30,7 +30,7 @@ void loadPreset(demo::App &app, demo::CallbackWorkers &workers, demo::Preset pre
                                     return demo::loadSamples(std::move(location));
                                 },
                                 [&](demo::LoadedSamples samples) {
-                                    app.installSamples(std::move(samples));
+                                    sampler.installSamples(std::move(samples));
                                     app.notifyPresetLoaded();
                                     app.setLoading(false);
                                     finished = true;
@@ -41,15 +41,16 @@ void loadPreset(demo::App &app, demo::CallbackWorkers &workers, demo::Preset pre
 
 int main() {
     demo::App app;
+    demo::Sampler sampler;
     demo::HostQueue mainQueue;
     demo::CallbackWorkers workers(mainQueue);
     auto preset = demo::concertGrand();
     bool dialogReturned = false;
     bool finished = false;
 
-    loadPreset(app, workers, preset, dialogReturned, finished);
+    loadPreset(app, sampler, workers, preset, dialogReturned, finished);
     mainQueue.pumpUntil([&] { return dialogReturned; });
 
     // QA: "Cancel the dialog. The spinner stays forever."
-    return app.qaCheck(preset.name) && finished ? 0 : 1;
+    return app.qaCheck(preset.name, sampler) && finished ? 0 : 1;
 }
