@@ -1473,3 +1473,318 @@ MainActorTask loadPreset(...) {
 </div>
 
 <div v-click="6" class="takeaway">Cancellation preserves structured exit: cleanup first, frame destruction only after completion.</div>
+
+---
+
+# Where did all that machinery come from?
+
+<div class="runtime-origin-layout">
+<div class="runtime-origin-code">
+
+<div class="eyebrow">The API we just used</div>
+
+```cpp
+MainActorTask loadPreset(...);
+
+auto loading = affine::spawn(
+    loadPreset(...), root);
+
+loading.close();
+root.shutdown_and_wait();
+```
+
+</div>
+<div class="runtime-origin-answer">
+  <div v-click="1" class="not-from-standard">None of this came with C++20.</div>
+  <div class="runtime-origin-split">
+    <div v-click="2">
+      <strong>C++20 gave us</strong>
+      <span><code>co_await</code>, coroutine frames and the compiler’s suspend/resume protocol.</span>
+    </div>
+    <div v-click="3" class="runtime-still-needed">
+      <strong>We still needed</strong>
+      <span>Tasks, schedulers, ownership, cancellation propagation and message-thread integration.</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<div v-click="4" class="takeaway">That API is the result of choosing a foundation—and filling its plug-in-specific gaps.</div>
+
+---
+
+# The larger ecosystems
+
+<div class="framework-pair">
+  <div v-click="1" class="framework-card">
+    <div class="framework-name">Folly</div>
+    <strong>Mature production ecosystem</strong>
+    <span>Tasks, executors, cancellation, scopes and a huge collection of async primitives.</span>
+    <div v-click="2" class="framework-hesitation framework-tradeoff">
+      <b>Why I moved on</b>
+      A much larger dependency than I wanted for a plug-in, and I could not get my Windows build into a state I was happy with.
+    </div>
+  </div>
+  <div v-click="3" class="framework-card production-framework">
+    <div class="framework-name">Boost.Cobalt</div>
+    <strong>A pleasant coroutine-first API</strong>
+    <span>Tasks, structured composition, races, scopes and implicit cancellation. I have shipped this in production.</span>
+    <div v-click="4" class="framework-hesitation framework-tradeoff">
+      <b>The shape</b>
+      Cobalt is deliberately single-threaded. That makes its concurrency model wonderfully simple, but worker ↔ main executor hopping is not what it is built around.
+    </div>
+  </div>
+</div>
+
+<div v-click="5" class="takeaway">Cobalt has served me well in production. Folly was simply the one I could not make fit this plug-in environment.</div>
+
+---
+
+# The focused options
+
+<div class="framework-pair">
+  <div v-click="1" class="framework-card">
+    <div class="framework-name">jbaldwin/libcoro</div>
+    <strong>The nicest toolbox</strong>
+    <span>Small enough to understand, with tasks, schedulers, thread pools and useful awaitables. Initially my favourite—and used in production.</span>
+    <div v-click="2" class="framework-hesitation framework-tradeoff">
+      <b>What remains ours</b>
+      It gives flexible primitives; I still decide how task trees are owned and synchronously torn down with the plug-in.
+    </div>
+  </div>
+  <div v-click="3" class="framework-card selected-framework">
+    <div class="framework-name">stdexec</div>
+    <strong>The committee chose this model</strong>
+    <span>P2300 sender/receiver became C++26 <code>std::execution</code>; stdexec is its reference implementation.</span>
+    <div v-click="4" class="framework-hesitation framework-tradeoff">
+      <b>The price</b>
+      Sender/receiver is harder to learn and considerably more template-heavy.
+    </div>
+  </div>
+</div>
+
+<div v-click="5" class="framework-shared-gap">
+  <strong>Shared plug-in gap:</strong> none of these libraries knows about the host-owned message thread. Every option needs a plug-in-specific integration layer.
+</div>
+
+---
+
+# Why I ended up with <code>stdexec</code>
+
+<div class="stdexec-choice-layout">
+<div class="stdexec-orchestration">
+
+```cpp
+MainActorTask loadPreset(...) {
+    auto bytes = co_await readPreset(...);
+    auto tree = co_await prepareSamplerTree(bytes);
+
+    sampler.installSamplerTree(tree);
+}
+```
+
+</div>
+<div class="stdexec-stack">
+  <div v-click="1" class="standards-winner"><strong>It won.</strong><span><a href="https://wg21.link/P2300">P2300</a> sender/receiver became C++26 <code>std::execution</code>.</span></div>
+  <div v-click="4" class="stdexec-layer coroutine-layer"><strong>Coroutine tasks</strong><span>Readable orchestration</span></div>
+  <div v-click="3" class="stdexec-layer affine-layer"><strong>stdexec-affine</strong><span>Sticky main-thread resumption · root ownership · synchronous teardown</span></div>
+  <div v-click="2" class="stdexec-layer sender-layer"><strong>stdexec</strong><span>Reference implementation · senders · schedulers · stop environments</span></div>
+</div>
+</div>
+
+<div v-click="5" class="stdexec-operation-flow">
+  <span>senders implement individual operations</span>
+  <b>→</b>
+  <span>coroutines express the workflow</span>
+</div>
+
+<div v-click="6" class="takeaway">The deciding factor was direction: build the plug-in-specific affinity layer on the execution model C++26 chose.</div>
+
+---
+
+# Excellent. The abstractions will save us.
+
+<div class="framework-confidence-grid">
+  <div v-click="1"><strong>Execution</strong><span>explicit schedulers</span></div>
+  <div v-click="1"><strong>Ownership</strong><span>structured task scopes</span></div>
+  <div v-click="1"><strong>Affinity</strong><span>sticky main-thread tasks</span></div>
+  <div v-click="1"><strong>Cancellation</strong><span>cooperative stop propagation</span></div>
+</div>
+
+<div v-click="2" class="framework-confidence-punchline">C++ is still C++.</div>
+
+---
+
+# Footgun #1: one harmless refactor
+
+<div class="capture-refactor-lead">
+
+```cpp
+auto myResource = Object{};
+```
+
+</div>
+
+<div class="code-compare capture-refactor-compare">
+<div class="capture-variant safe-capture-variant">
+
+<div class="eyebrow">Directly awaited</div>
+
+```cpp
+co_await [myResource]() -> Task {
+    co_await something();
+    useResource(myResource);
+}();
+```
+
+<div v-click="1" class="capture-caption safe-caption">The closure temporary survives until this full expression finishes.</div>
+
+</div>
+<div v-click="2" class="capture-variant broken-capture-variant">
+
+<div class="eyebrow">Stored first</div>
+
+```cpp
+auto task = [myResource]() -> Task {
+    co_await something();
+    useResource(myResource);
+}();
+
+co_await std::move(task);
+```
+
+<div class="capture-caption broken-caption">The first full expression ends before the task is awaited. The closure dies there.</div>
+
+</div>
+</div>
+
+<div v-click="3" class="capture-lifetime-flow">
+  <span>capture lives in closure</span><b>→</b><span>coroutine frame keeps <code>this</code></span><b>→</b><span class="dead-closure">dangling closure pointer</span>
+</div>
+
+<div v-click="4" class="llm-footgun">LLMs ALWAYS get this wrong: “capture by value copied it into the coroutine frame.” Nope. 👋</div>
+
+---
+
+# Put coroutine state in coroutine parameters
+
+<div class="code-compare coroutine-parameter-fix">
+<div>
+
+```cpp
+auto task = [](Object resource) -> Task {
+    co_await something();
+    useResource(resource);
+}(std::move(myResource));
+
+co_await std::move(task);
+```
+
+</div>
+<div class="parameter-frame-flow">
+  <div v-click="1"><code>myResource</code><span>call argument</span></div>
+  <b v-click="2">→</b>
+  <div v-click="2" class="frame-owned-parameter"><code>resource</code><span>coroutine parameter copied into frame</span></div>
+  <b v-click="3">✓</b>
+</div>
+</div>
+
+<div v-click="4" class="takeaway">A capture belongs to the callable object. A coroutine parameter belongs to the coroutine frame.</div>
+
+---
+
+# Footgun #2: RAII works a little too well
+
+<div class="code-compare lock-footgun-compare">
+<div class="lock-footgun-broken">
+
+<div class="eyebrow">Ordinary scoped lock</div>
+
+```cpp
+ScopedLock lock(stateMutex);
+auto mixer = app.mixerSnapshot();
+
+auto tree = co_await
+    prepareSamplerTree(preset, mixer);
+
+sampler.installSamplerTree(std::move(tree));
+```
+
+<div v-click="1" class="lock-held-caption">The coroutine scope survives suspension. So does the lock.</div>
+
+<div v-click="2" class="lock-consequences">
+  <span>other work blocks</span>
+  <span>suspension can last arbitrarily long</span>
+  <span>resumption may happen on another thread</span>
+</div>
+
+</div>
+<div v-click="3" class="lock-footgun-fixed">
+
+<div class="eyebrow">Snapshot, release, then await</div>
+
+```cpp
+MixerSnapshot mixer;
+{
+    ScopedLock lock(stateMutex);
+    mixer = app.mixerSnapshot();
+}
+
+auto tree = co_await
+    prepareSamplerTree(preset, mixer);
+
+{
+    ScopedLock lock(stateMutex);
+    sampler.installSamplerTree(std::move(tree));
+}
+```
+
+</div>
+</div>
+
+<div v-click="4" class="takeaway">RAII spans suspension. Never suspend while holding an ordinary blocking or thread-owned lock.</div>
+
+---
+
+# Footgun #3: sometimes the frame itself is broken
+
+<div class="code-compare cobalt-footgun-layout">
+<div>
+
+<div class="eyebrow">Our Windows-only Boost.Cobalt patch</div>
+
+```cpp
+#ifdef _MSC_VER
+#define COBALT_PROMISE_ALIGN alignas(32)
+#else
+#define COBALT_PROMISE_ALIGN
+#endif
+
+template<class Return>
+struct COBALT_PROMISE_ALIGN task_promise
+    : promise_memory_resource_base,
+      /* ... */
+{};
+```
+
+</div>
+<div class="cobalt-bug-story">
+  <div v-click="1"><strong>The symptom</strong><span>Release-only access violations on MSVC when returning particular object layouts from <code>cobalt::task&lt;T&gt;</code>.</span></div>
+  <div v-click="2"><strong>The workaround</strong><span>Patch Cobalt’s promise type to <code>alignas(32)</code> while Conan generates the Windows build.</span></div>
+  <div v-click="3"><strong>The state in August 2026</strong><span><a href="https://github.com/boostorg/cobalt/issues/172">boostorg/cobalt#172</a> is still open; current <code>task_promise</code> remains unannotated.</span></div>
+</div>
+</div>
+
+<div v-click="4" class="takeaway">Sometimes the lifetime model is fine and the compiler-generated frame still falls through the floor.</div>
+
+---
+
+# Three footguns. Three different layers.
+
+<div class="footgun-summary-grid">
+  <div v-click="1"><strong>Outside the frame</strong><span>The lambda capture died with its closure.</span></div>
+  <div v-click="2"><strong>Inside the frame too long</strong><span>The lock survived across suspension.</span></div>
+  <div v-click="3"><strong>The frame itself</strong><span>MSVC needed stronger promise alignment.</span></div>
+</div>
+
+<div v-click="4" class="takeaway">Frameworks remove repeated control-flow plumbing. They do not repeal C++ lifetime rules—or compiler bugs.</div>
