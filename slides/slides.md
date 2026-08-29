@@ -501,3 +501,520 @@ sampler.rebuildKeySwitchMap();
 </div>
 
 <div v-click class="takeaway">The function can suspend without surrendering its structure.</div>
+
+---
+
+# What actually changed?
+
+<div class="code-compare coroutine-syntax">
+<div>
+
+<div class="eyebrow">Synchronous function</div>
+
+```cpp
+void loadPreset(...) {
+    auto tree = prepareSamplerTree(...);
+    // ...
+    return;
+}
+```
+
+</div>
+<div>
+
+<div class="eyebrow">Coroutine</div>
+
+```cpp {none|1|2|4}
+MainActorTask loadPreset(...) {
+    auto tree = co_await prepareSamplerTree(...);
+    // ...
+    co_return;
+}
+```
+
+</div>
+</div>
+
+<div class="coroutine-keywords">
+  <div v-click="1"><h3><code>MainActorTask</code></h3><p>A coroutine-aware return type. It defines how the operation completes and where its body resumes.</p></div>
+  <div v-click="2"><h3><code>co_await</code></h3><p>May suspend this function until the operation completes—without blocking the thread.</p></div>
+  <div v-click="3"><h3><code>co_return</code></h3><p>Completes the coroutine. Normal scope exit still destroys locals and runs RAII cleanup.</p></div>
+</div>
+
+<div v-click="4" class="takeaway">The <code>co_</code> keywords make it a coroutine. The return type tells C++ what kind.</div>
+
+---
+
+# Three types, three jobs
+
+```cpp {none|1|1|2}
+MainActorTask loadPreset(...) {
+    auto tree = co_await prepareSamplerTree(...);
+}
+```
+
+<div class="coroutine-keywords type-overview">
+  <div v-click="1"><h3>Return object</h3><p>The <code>MainActorTask</code> object handed to the caller. It represents this coroutine.</p></div>
+  <div v-click="2"><h3>Promise type</h3><p><code>MainActorTask::promise_type</code>: compiler-facing state stored inside the coroutine frame.</p></div>
+  <div v-click="3"><h3>Awaitable</h3><p><code>prepareSamplerTree(...)</code> returns one. It defines the suspension point: whether execution pauses, what runs next, and what value the coroutine receives when it continues.</p></div>
+</div>
+
+<div v-click="4" class="takeaway">The return type defines the coroutine. Each awaitable defines one wait.</div>
+
+---
+
+# Calling a coroutine creates a frame
+
+<div class="coroutine-call">
+
+```cpp
+auto task = loadPreset(...);
+```
+
+</div>
+
+<div class="coroutine-object-map">
+  <div v-click="2" class="return-object">
+    <div class="eyebrow">Visible to the caller</div>
+    <h3><code>MainActorTask task</code></h3>
+    <p>The return object holds a coroutine handle.</p>
+  </div>
+
+  <div class="object-links">
+    <div v-click="2"><span>←</span><strong>promise creates</strong></div>
+    <div v-click="3"><strong>handle points to</strong><span>→</span></div>
+  </div>
+
+  <div v-click="1" class="coroutine-frame">
+    <div class="eyebrow">Hidden coroutine frame</div>
+    <div class="frame-part">parameters and local variables</div>
+    <div class="frame-part">current suspension point</div>
+    <div class="frame-promise"><code>MainActorTask::promise_type</code><small>start · finish · result · exception policy</small></div>
+  </div>
+</div>
+
+<div v-click="4" class="takeaway">The task is the public handle. The promise is private machinery inside the frame.</div>
+
+---
+
+# <code>promise_type</code>: the coroutine's control panel
+
+```cpp {none|1|2|3-4|5-6|7|none}
+struct MainActorTask::promise_type {
+    MainActorTask get_return_object();
+    auto initial_suspend();
+    auto final_suspend();
+    void return_void();
+    void unhandled_exception();
+    template<class T> auto await_transform(T&&);
+};
+```
+
+<div class="promise-notes">
+  <div v-click="1">The compiler creates it <strong>inside the coroutine frame</strong>.</div>
+  <div v-click="2"><code>get_return_object()</code> creates the <code>MainActorTask</code> seen by the caller.</div>
+  <div v-click="3" class="promise-hook-roles">
+    <div>
+      <code>initial_suspend()</code>
+      <strong>Startup policy</strong>
+      <span>Should the task start eagerly—or wait until someone starts it?</span>
+    </div>
+    <div>
+      <code>final_suspend()</code>
+      <strong>Continuation handoff</strong>
+      <span>Usually hands control back to the parent task that was awaiting this one.</span>
+    </div>
+  </div>
+  <div v-click="4"><code>co_return</code> and uncaught exceptions are routed through it.</div>
+  <div v-click="5"><code>await_transform</code> can customize every <code>co_await</code> in this coroutine.</div>
+</div>
+
+<div v-click="6" class="takeaway">This is a compiler protocol—not <code>std::promise</code>.</div>
+
+---
+
+# One <code>co_await</code>, step by step
+
+<div v-click="1" class="awaitable-creation">
+  <div><span>evaluate expression</span><code>ScheduleOn{workers}</code></div>
+  <b>creates →</b>
+  <div><span>awaitable</span><code>ScheduleOn</code></div>
+  <b>used directly as →</b>
+  <div><span>awaiter</span><code>ScheduleOn</code></div>
+</div>
+
+<div class="await-runtime-layout">
+<div class="await-parent-frame">
+
+<div class="eyebrow">The coroutine using the awaitable</div>
+
+```cpp
+Task<void> prepareSamplerTree(...) {
+    co_await ScheduleOn{workers};
+
+    buildExpensiveSamplerTree(preset, mixer);
+}
+```
+
+<div v-click="3" class="passed-parent-handle"><code>prepareHandle</code> points to this coroutine, suspended at <code>co_await</code>.</div>
+
+</div>
+
+<div class="await-runtime-steps">
+  <div v-click="2" class="await-runtime-step">
+    <span>2 · ask the awaiter</span>
+    <strong><code>awaiter.await_ready()</code></strong>
+    <small>If <code>true</code>, skip suspension and call <code>await_resume()</code> immediately.</small>
+  </div>
+
+  <div v-click="3" class="await-runtime-step active-suspend-step">
+    <span>3 · if it returns <code>false</code></span>
+    <strong><code>awaiter.await_suspend(prepareHandle)</code></strong>
+    <small>The current coroutine is suspended; its handle is passed to the awaiter.</small>
+  </div>
+
+  <div v-click="4" class="await-runtime-step active-resume-step">
+    <span>4 · when that handle is resumed</span>
+    <strong><code>awaiter.await_resume()</code></strong>
+    <small>The compiler calls it inside resumed <code>prepareSamplerTree()</code>; then building begins.</small>
+  </div>
+</div>
+</div>
+
+<div v-click="4" class="await-handle-story">
+  <code>prepareHandle</code><span>passed into <code>await_suspend()</code></span><b>→ worker resumes it →</b><span>compiler calls <code>await_resume()</code></span>
+</div>
+
+<div v-click="5" class="takeaway await-runtime-takeaway">An awaitable defines this protocol around one suspension point.</div>
+
+---
+
+# A tiny awaitable: prepare on a worker
+
+<div class="code-compare schedule-awaitable">
+<div class="suspended-coroutine-code" :class="{
+  'show-suspended-line': $clicks === 2,
+  'show-resumed-line': $clicks === 4,
+}">
+
+<div class="eyebrow">Inside the worker operation</div>
+
+```cpp
+Task<void> prepareSamplerTree(...) {
+    co_await ScheduleOn{workers};
+
+    // continues on a worker
+    buildExpensiveSamplerTree(preset, mixer);
+}
+```
+
+</div>
+<div>
+
+<div class="eyebrow">The awaitable</div>
+
+```cpp {none|4-6|7-11|9|12}
+struct ScheduleOn {
+    ThreadPool& pool;
+
+    bool await_ready() const noexcept {
+        return pool.isCurrentThread();
+    }
+    void await_suspend(std::coroutine_handle<> continuation) {
+        pool.enqueue([continuation] {
+            continuation.resume();
+        });
+    }
+    void await_resume() const noexcept {}
+};
+```
+
+</div>
+</div>
+
+<div class="awaiter-grid schedule-steps">
+  <div v-click="1"><h3><code>await_ready()</code></h3><p>Already on the pool? Continue immediately.</p></div>
+  <div v-click="2"><h3><code>await_suspend()</code></h3><p><code>continuation</code> points to the packed-up coroutine state. Enqueue the job.</p></div>
+  <div v-click="3"><h3><code>continuation.resume()</code></h3><p>A worker runs the job and resumes <code>prepareSamplerTree()</code> there.</p></div>
+  <div v-click="4"><h3><code>await_resume()</code></h3><p>The compiler calls this first; then execution continues after <code>co_await</code>.</p></div>
+</div>
+
+---
+
+# Task types usually play both sides
+
+<div class="code-compare task-duality">
+<div>
+
+<div class="eyebrow">Returned by a coroutine</div>
+
+```cpp
+MainActorTask loadPreset() {
+    // ...
+    co_return;
+}
+```
+
+</div>
+<div v-click="1">
+
+<div class="eyebrow">Awaited by another coroutine</div>
+
+```cpp
+MainActorTask openProject() {
+    co_await loadPreset();
+    co_return;
+}
+```
+
+</div>
+</div>
+
+<div v-click="2" class="task-shape">
+
+```cpp
+struct MainActorTask {
+    struct promise_type; // lets the compiler build the task
+    struct awaiter;      // await_ready / suspend / resume
+
+    awaiter operator co_await() && noexcept;
+};
+```
+
+</div>
+
+<div v-click="3" class="takeaway">A task is commonly awaitable—so one task can suspend for another.</div>
+
+---
+
+# Step 1: <code>child()</code> returns a task
+
+<div class="code-compare task-return-step">
+<div class="task-return-source" :class="{
+  'task-create-click': $clicks === 1,
+  'task-return-click': $clicks === 2,
+}">
+
+<div class="eyebrow">Parent source</div>
+
+```cpp {none|2|2|none}
+Task<void> parent() {
+    co_await child();
+    // parent continues here
+}
+```
+
+<div v-if="$clicks === 1" class="step-explanation"><code>child()</code> creates a child coroutine frame.</div>
+<div v-if="$clicks === 2" class="step-explanation"><code>child()</code> returns a <code>Task</code> holding that frame’s handle.</div>
+
+</div>
+
+<div class="task-return-picture" :class="{
+  'task-create-click': $clicks === 1,
+  'task-return-click': $clicks === 2,
+}">
+  <div class="coro-frame-card parent-source-frame">
+    <div class="eyebrow">Parent coroutine frame</div>
+    <div class="frame-row"><span>state</span><strong>running</strong></div>
+    <div class="frame-code"><code>co_await child()</code></div>
+  </div>
+
+  <div v-click="1" class="task-create-arrow"><code>child()</code> creates ↓</div>
+
+  <div v-click="1" class="coro-frame-card child-created-frame">
+    <div class="eyebrow">Child coroutine frame</div>
+    <div class="frame-row"><span>contains</span><strong>coroutine body</strong></div>
+    <div class="frame-row"><span>promise</span><code>Task::promise_type</code></div>
+  </div>
+
+  <div v-click="2" class="returned-task-handle"><code>Task</code><span>returned to parent · handle points to child frame ↑</span></div>
+</div>
+</div>
+
+<div v-click="3" class="takeaway"><code>co_await</code> receives a task that already holds the child frame’s handle.</div>
+
+---
+
+# Step 2: the parent becomes the continuation
+
+<div class="code-compare continuation-step">
+<div class="continuation-code" :class="{
+  'save-continuation-click': $clicks === 1,
+  'transfer-child-click': $clicks === 2,
+}">
+
+<div class="eyebrow">Child <code>Task</code> is awaitable → this is its awaiter</div>
+
+```cpp {none|6|7|none}
+struct Task::awaiter {
+    task_handle child;
+
+    std::coroutine_handle<> await_suspend(
+        std::coroutine_handle<> parent) {
+        child.promise().continuation = parent;
+        return child;
+    }
+};
+```
+
+</div>
+<div class="continuation-picture" :class="{
+  'save-continuation-click': $clicks === 1,
+  'transfer-child-click': $clicks === 2,
+}">
+  <div class="coro-frame-card suspended-frame">
+    <div class="eyebrow">Parent frame</div>
+    <div class="frame-row"><span>state</span><strong>suspended</strong></div>
+    <div class="frame-code"><code>co_await child()</code></div>
+  </div>
+
+  <div v-click="1" class="continuation-pointer">← <code>continuation</code></div>
+
+  <div class="coro-frame-card">
+    <div class="eyebrow">Child frame</div>
+    <div v-click="1" class="frame-promise-slot"><span>promise.continuation</span><code>parent handle</code></div>
+    <div v-click="2" class="frame-row active-row"><span>next</span><strong>run child</strong></div>
+  </div>
+</div>
+</div>
+
+<div v-click="3" class="takeaway">The parent is parked in its frame. Returning the child handle transfers control to the child.</div>
+
+---
+
+# Step 3: <code>final_suspend()</code> returns to the parent
+
+<div class="code-compare final-suspend-step final-handoff-layout">
+<div class="final-handoff-code" :class="{
+  'child-finishes-click': $clicks === 1,
+  'parent-resumes-click': $clicks === 2,
+}">
+
+<div class="eyebrow">The child finishes</div>
+
+<div class="child-finish-code">
+
+```cpp
+Task<void> child() {
+    co_return;
+}
+```
+
+</div>
+
+<div class="eyebrow final-awaiter-label">Its final awaiter follows the saved link</div>
+
+<div class="final-awaiter-code">
+
+```cpp
+final_awaiter final_suspend() noexcept {
+    return {};
+}
+
+std::coroutine_handle<> final_awaiter::await_suspend(
+    task_handle child) noexcept {
+    return child.promise().continuation;
+}
+```
+
+</div>
+</div>
+
+<div class="final-handoff-picture" :class="{
+  'child-finishes-click': $clicks === 1,
+  'parent-resumes-click': $clicks === 2,
+}">
+  <div class="coro-frame-card final-child-frame">
+    <div class="eyebrow">Child frame</div>
+    <div v-click="1"><strong>at <code>final_suspend()</code></strong><small>the saved continuation is the parent handle</small></div>
+  </div>
+  <div v-click="2" class="return-arrow"><code>continuation</code> ↓</div>
+  <div v-click="2" class="coro-frame-card resumed-parent-frame"><div class="eyebrow">Parent frame</div><strong><code>await_resume()</code> → next line</strong></div>
+</div>
+</div>
+
+<div v-click="3" class="takeaway">The child frame survives the handoff and can be destroyed after <code>await_resume()</code>.</div>
+
+---
+
+# Step 4: the same rule builds a chain
+
+<div class="nested-frame-chain" :class="{
+  'chain-links-click': $clicks === 1,
+  'chain-unwind-click': $clicks === 2,
+}">
+  <div class="coro-frame-card">
+    <div class="eyebrow">Grandparent frame</div>
+    <div class="frame-code"><code>co_await parent()</code></div>
+  </div>
+
+  <div v-click="1" class="nested-link">← <code>continuation</code></div>
+
+  <div class="coro-frame-card">
+    <div class="eyebrow">Parent frame</div>
+    <div class="frame-code"><code>co_await child()</code></div>
+  </div>
+
+  <div v-click="1" class="nested-link">← <code>continuation</code></div>
+
+  <div class="coro-frame-card active-frame">
+    <div class="eyebrow">Child frame</div>
+    <div class="frame-code"><code>running</code></div>
+  </div>
+</div>
+
+<div v-click="2" class="unwind-flow chain-unwind-highlight">
+  <span>child <code>final_suspend</code></span><b>→</b><span>parent resumes</span><b>→</b><span>parent <code>final_suspend</code></span><b>→</b><span>grandparent resumes</span>
+</div>
+
+<div v-click="3" class="takeaway">A linked chain of coroutine frames—not a growing chain of native stack frames.</div>
+
+---
+
+# The completion handoff is solved once
+
+<div class="code-compare completion-abstraction">
+<div v-click="1">
+
+<div class="eyebrow">Callbacks: repeated in every operation</div>
+
+```cpp
+void loadSamplesAsync(Completion completion) {
+    workers.run([completion](auto samples) {
+        if (!samples)
+            return; // completion lost
+
+        completion(true);
+    });
+}
+```
+
+<p class="comparison-note">Completion is ordinary data. Every branch must remember to invoke it.</p>
+
+</div>
+<div v-click="2">
+
+<div class="eyebrow">Tasks: implemented once by the type</div>
+
+```cpp
+Task<bool> loadSamplesAsync() {
+    auto samples = co_await workers.run(...);
+    if (!samples)
+        co_return false;
+
+    co_return true;
+}
+```
+
+<p class="comparison-note">The task awaiter stores the continuation. <code>final_suspend()</code> hands control back.</p>
+
+</div>
+</div>
+
+<div v-click="3" class="mechanism-compare">
+  <span>Every callback site reinvents the handoff</span>
+  <b>→</b>
+  <span>Every <code>Task&lt;T&gt;</code> shares one tested handoff</span>
+</div>
+
+<div v-click="4" class="takeaway">The control-flow plumbing moved out of the feature code and into one reusable abstraction.</div>
