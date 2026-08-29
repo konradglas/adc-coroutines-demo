@@ -1209,3 +1209,165 @@ auto promise_type::await_transform(
 </div>
 
 <div v-click="4" class="takeaway"><code>await_transform</code> lets the return type apply one resumption policy to every suspension point.</div>
+
+---
+
+# Yes! This is actually nice.
+
+<div class="structured-celebration-code">
+
+```cpp
+MainActorTask loadPreset(...) {
+    ScopeExit finish([&] { app.setLoading(false); });
+
+    auto tree = co_await prepareSamplerTree(...);
+    sampler.installSamplerTree(tree);
+
+    auto location = co_await askUserToLocateSamples(...);
+    if (!location)
+        co_return;
+
+    sampler.installSamples(co_await loadSamples(*location));
+}
+```
+
+</div>
+
+<div v-click="1" class="structured-win-grid">
+  <div><strong>Sequential</strong><span>The workflow reads from top to bottom.</span></div>
+  <div><strong>RAII</strong><span>Cleanup survives every suspension.</span></div>
+  <div><strong>Main-affine</strong><span>Plugin state stays on its cozy actor.</span></div>
+  <div><strong>Composable</strong><span>Child tasks own their continuation handoff.</span></div>
+</div>
+
+<div v-click="2" class="structured-celebration-summary">Structured control flow. Structured execution. Structured lifetime.</div>
+
+<div class="celebration-doubt">
+  <strong v-click="3">But...</strong>
+  <span v-click="4">hmmm.</span>
+</div>
+
+---
+
+# Okay. One tiny question...
+
+<div class="code-compare root-task-problem">
+<div>
+
+<div class="eyebrow">Inside the coroutine tree</div>
+
+```cpp
+MainActorTask loadPreset(...) {
+    auto tree = co_await prepareSamplerTree(...);
+    auto samples = co_await loadSamples(...);
+    // beautifully owned by the parent task
+}
+```
+
+</div>
+<div class="root-call-code" :class="{ 'show-orphan-call': $clicks >= 1 }">
+
+<div class="eyebrow">At the plugin boundary</div>
+
+```cpp
+void onLoadPreset() {
+    loadPreset(...);
+}
+```
+
+<div v-click="1" class="orphan-caption">This merely creates a lazy task—and then throws the task object away.</div>
+
+</div>
+</div>
+
+<div class="root-questions">
+  <div v-click="2"><strong>No parent coroutine</strong><span>Nothing awaits it or provides a continuation.</span></div>
+  <div v-click="3"><strong>No structural owner</strong><span>Nothing is responsible for keeping its frame alive.</span></div>
+  <div v-click="4"><strong>Remember <code>initial_suspend()</code>?</strong><span>A lazy root does not even start until something starts it.</span></div>
+</div>
+
+<div v-click="5" class="takeaway">The coroutine tree still needs a root.</div>
+
+---
+
+# One root scope owns the whole forest
+
+<div class="code-compare root-scope-slide">
+<div>
+
+```cpp
+auto root = affine::create_root_scope();
+
+auto loading = affine::spawn(
+    loadPreset(...), root);
+
+auto scan = affine::spawn(
+    scanMissingSamples(...), loading);
+
+auto preview = affine::spawn(
+    renderPreview(...), loading);
+```
+
+</div>
+<div class="scope-tree">
+  <div v-click="1" class="scope-node root-scope-node"><code>root_scope</code><span>plugin lifetime</span></div>
+  <div v-click="2" class="scope-branch">↓ owns</div>
+  <div v-click="2" class="scope-node task-scope-node"><code>loadPreset</code><span><code>TaskHandle loading</code></span></div>
+  <div v-click="3" class="scope-fork"><span>↙ owns</span><span>owns ↘</span></div>
+  <div v-click="3" class="scope-leaves">
+    <div class="scope-node"><code>scanMissingSamples</code></div>
+    <div class="scope-node"><code>renderPreview</code></div>
+  </div>
+</div>
+</div>
+
+<div v-click="4" class="scope-ownership-note">
+  Keep a <code>TaskHandle</code> only when you need to close—and request cancellation for—that subtree later.
+</div>
+
+<div v-click="5" class="takeaway">Each spawned task is retained by its structural parent until that subtree completes.</div>
+
+---
+
+# Only the root pays the teardown bill
+
+<div class="code-compare scope-close-compare">
+<div v-click="1" class="scope-close-card child-close-card">
+
+<div class="eyebrow">Stop one operation during normal use</div>
+
+```cpp
+loading.close();
+```
+
+<div v-click="2" class="close-effects">
+  <span>request stop for this subtree</span>
+  <span>return immediately</span>
+  <span>leave the executor open</span>
+</div>
+
+</div>
+<div v-click="3" class="scope-close-card root-close-card">
+
+<div class="eyebrow">The plugin is going away</div>
+
+```cpp
+root.shutdown_and_wait();
+```
+
+<div v-click="4" class="close-effects">
+  <span>request stop for the entire tree</span>
+  <span>drain every outstanding continuation</span>
+  <span>destroy frames only after completion</span>
+</div>
+
+</div>
+</div>
+
+<div v-click="5" class="scope-boundary-summary">
+  <span>many asynchronous tasks</span>
+  <b>→</b>
+  <strong>one synchronous lifetime boundary</strong>
+</div>
+
+<div v-click="6" class="takeaway">Child handles only need to close their branch. The root guarantees that nothing survives plugin teardown.</div>
