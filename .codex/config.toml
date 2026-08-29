@@ -1,0 +1,4 @@
+[mcp_servers.slidev]
+command = "npx"
+args = ["slidev", "mcp", "slides.md"]
+cwd = "slides"

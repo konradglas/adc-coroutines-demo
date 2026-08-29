@@ -17,9 +17,13 @@ mdc: true
 # The perfectly correct feature
 
 ```cpp
-void loadPreset(App& app, Sampler& sampler, Preset preset) {
+void loadPreset(...) {
     app.setLoading(true);
-    ScopeExit stopLoading([&] { app.setLoading(false); });
+    ScopeExit finish([&] {
+        app.notifyPresetLoaded();
+        app.setLoading(false);
+        finished = true;
+    });
 
     app.loadMixerState(preset);
     auto mixer = app.mixerSnapshot();
@@ -29,106 +33,134 @@ void loadPreset(App& app, Sampler& sampler, Preset preset) {
 
     sampler.installSamplerTree(tree);
     sampler.rebuildKeySwitchMap();
-
-    app.notifyPresetLoaded();
 }
 ```
 
-<div v-click class="takeaway">Correct. Sequential. Exception-safe. And running entirely on main.</div>
-
----
-
-# The hidden contract
-
-```cpp {all|1|2}
-sampler.installSamplerTree(tree);
-sampler.rebuildKeySwitchMap();
-```
-
-<div v-click class="thought-actual">
-  <div>
-    <h3>The signature says</h3>
-    <p>Rebuild the key-switch map.</p>
-  </div>
-  <div>
-    <h3>The implementation means</h3>
-    <p>Read the tree already installed in <code>sampler</code>, then derive the map from it.</p>
-  </div>
-</div>
-
-<div v-click class="takeaway">The dependency is real—even though the type system cannot see it.</div>
+<div v-click class="takeaway">Correct. Sequential. Scope-bound. And running entirely on main.</div>
 
 ---
 
 # QA, round one
 
 <div class="chat-stack">
+  <ChatMessage v-click from="Developer">Done. Can you give it a quick test?</ChatMessage>
   <ChatMessage v-click from="QA">Loading a preset freezes the application.</ChatMessage>
-  <ChatMessage v-click from="Developer">Only while it is loading.</ChatMessage>
-  <ChatMessage v-click from="QA">Yes. That is what “freezes” means.</ChatMessage>
+  <ChatMessage v-click from="Developer">Do you want a working slow application or a broken fast one??</ChatMessage>
+  <ChatMessage v-click from="QA">I would like to have both...</ChatMessage>
 </div>
 
 ---
 
 # Easy: move the slow line away
 
-```cpp {all|1-7|9-10}
-workers.run(
-    [preset, mixer] {
-        return prepareSamplerTree(preset, mixer);
-    },
-    [&](PreparedSamplerTree tree) {
-        sampler.installSamplerTree(tree);
-    });
+```cpp {none|1-4|6-7}
+workers.run([&, preset, mixer] {
+    auto tree = prepareSamplerTree(preset, mixer);
+    sampler.installSamplerTree(tree);
+});
 
 sampler.rebuildKeySwitchMap();
 app.notifyPresetLoaded();
 ```
 
-<div v-click class="thought-actual">
-  <div><h3>What I think</h3><p>Same sequence, less blocking.</p></div>
-  <div><h3>What actually happens</h3><p><code>workers.run()</code> starts work and returns.</p></div>
-</div>
-
----
-
-# The dependency vanished
-
-<div class="thread-trace">
-  <div class="thread-name">MAIN</div>
-  <div class="thread-action">start worker</div>
-
-  <div v-click class="thread-name">MAIN</div>
-  <div v-click class="thread-action">rebuild map from the old tree → “loaded”</div>
-
-  <div v-click class="thread-name">WORKER</div>
-  <div v-click class="thread-action">prepare the new sampler tree</div>
-
-  <div v-click class="thread-name">MAIN</div>
-  <div v-click class="thread-action">install the new tree—too late</div>
-</div>
-
-<div v-click class="takeaway">No data race required. This ordering bug is deterministic.</div>
+<div v-click class="takeaway">Same sequence, less blocking. Ship it.</div>
 
 ---
 
 # QA, round two
 
-<div class="chat-stack">
+<div class="chat-stack compact-chat">
+  <ChatMessage v-click from="Developer">Fixed. Try it now.</ChatMessage>
   <ChatMessage v-click from="QA">
-    The mixer says Concert Grand.<br>
-    The sampler says Concert Grand.<br>
-    The key switches still belong to the previous preset.
+    This is weird ...<br>
   </ChatMessage>
-  <ChatMessage v-click from="Developer">That is impossible.</ChatMessage>
-  <ChatMessage v-click from="QA">It happens every time.</ChatMessage>
+  <ChatMessage v-click from="QA">
+    Sometimes it looks fine.<br>
+    Sometimes some part of the old preset is still in there.<br>
+    And sometimes it plainly crashes.
+  </ChatMessage>
+  <ChatMessage v-click from="Developer">Those cannot all be the same bug.</ChatMessage>
+  <ChatMessage v-click from="QA">They are all the same button.</ChatMessage>
 </div>
+
+---
+
+# What QA found
+
+```cpp {none|1|2}
+sampler.installSamplerTree(tree);
+sampler.rebuildKeySwitchMap();
+```
+
+<div v-click class="thought-actual">
+  <div>
+    <h3>What I assumed</h3>
+    <p><code>rebuildKeySwitchMap()</code> rebuilds whatever it needs.</p>
+  </div>
+  <div>
+    <h3>What QA uncovered</h3>
+    <p>It reads the tree already installed in <code>sampler</code>.</p>
+  </div>
+</div>
+
+<div v-click class="takeaway">I encoded the dependency in statement order—and then casually split the statements apart.</div>
+
+---
+
+# The dependency vanished
+
+<div class="race-pair">
+<div>
+
+```cpp {none|none|1-4|6-7|3,6-7}
+workers.run([&, preset, mixer] {
+    auto tree = prepareSamplerTree(preset, mixer);
+    sampler.installSamplerTree(tree);
+});
+
+sampler.rebuildKeySwitchMap();
+app.notifyPresetLoaded();
+```
+
+</div>
+<div class="race-story">
+  <div v-if="$clicks === 1" class="race-step race-assumption">
+    <h3>What I think</h3>
+    <p>Same sequence, less blocking.</p>
+  </div>
+
+  <div v-if="$clicks >= 2" class="race-step race-thread">
+    <h3>Worker</h3>
+    <p>Installs the new tree whenever it finishes.</p>
+  </div>
+
+  <span v-if="$clicks >= 3" class="race-car-icon" aria-hidden="true">🏎️</span>
+
+  <div v-if="$clicks >= 3" class="race-step race-thread">
+    <h3>Main</h3>
+    <p>Immediately rebuilds the map and announces “loaded.”</p>
+  </div>
+
+  <div v-if="$clicks >= 4" class="race-step race-result">
+    <h3>What actually happens</h3>
+    <p>No ordering: stale state if main wins; undefined behavior if they overlap.</p>
+  </div>
+</div>
+</div>
+
+<div v-click="5" class="takeaway">Sometimes worker wins. Sometimes main wins. Sometimes they overlap.</div>
 
 ---
 
 # Fine. Restore the order—and main-thread affinity.
 
-```cpp {all|1-4|5-11}
+```cpp {none|7-9|10-17|none}
+ScopeExit finish([&] {
+    app.notifyPresetLoaded();
+    app.setLoading(false);
+    finished = true;
+});
+
 workers.run([&, preset, mixer] {
     auto tree = prepareSamplerTree(preset, mixer);
 
@@ -142,7 +174,84 @@ workers.run([&, preset, mixer] {
 });
 ```
 
-<div v-click class="takeaway">The happy path works. Ship it.</div>
+<div v-if="$clicks >= 3" class="takeaway">Ordering restored. Main-thread affinity restored. Ship it.</div>
+
+---
+
+# QA, round three
+
+<div class="chat-stack">
+  <ChatMessage v-click from="Developer">All fixed. Can you test it again?</ChatMessage>
+  <ChatMessage v-click from="QA">
+    The spinner disappears immediately.<br>
+    For a moment, the old sound is still there.<br>
+    Then the new preset appears—and the UI refreshes again.
+  </ChatMessage>
+  <ChatMessage v-click from="Developer">So it is fast now.</ChatMessage>
+  <ChatMessage v-click from="QA">The UI is lying now.</ChatMessage>
+</div>
+
+---
+
+<h1>{{ $clicks < 5 ? 'The function returned. The operation didn’t.' : 'Fine. Complete it manually.' }}</h1>
+
+<div v-show="$clicks < 5">
+<div class="race-pair">
+<div>
+
+```cpp {none|7|1-5|all|none}
+ScopeExit finish([&] {
+    app.notifyPresetLoaded();
+    app.setLoading(false);
+    finished = true;
+});
+
+workers.run(...);
+```
+
+</div>
+<div class="race-story">
+  <div v-if="$clicks >= 1" class="race-step">
+    <h3>Main</h3>
+    <p><code>workers.run()</code> starts work and returns.</p>
+  </div>
+
+  <div v-if="$clicks >= 2" class="race-step">
+    <h3>Scope exit</h3>
+    <p><code>loadPreset()</code> returns, so completion fires immediately.</p>
+  </div>
+
+  <div v-if="$clicks >= 3" class="race-step race-result">
+    <h3>Later</h3>
+    <p>The posted callback publishes the preset and completes everything again.</p>
+  </div>
+</div>
+</div>
+
+<div v-if="$clicks >= 4" class="takeaway premature-completion">The guard covered the function call—not the asynchronous operation.</div>
+</div>
+
+<div v-show="$clicks >= 5">
+
+```cpp
+workers.run([&, preset, mixer] {
+    auto tree = prepareSamplerTree(preset, mixer);
+
+    mainQueue.post([&, tree = std::move(tree)] {
+        sampler.installSamplerTree(tree);
+        sampler.rebuildKeySwitchMap();
+        app.notifyPresetLoaded();
+        app.setLoading(false);
+        finished = true;
+    });
+});
+```
+
+<div v-if="$clicks >= 6" class="takeaway premature-completion">The happy path works again. RAII does not.</div>
+</div>
+
+<span v-click="5" style="display: none"></span>
+<span v-click="6" style="display: none"></span>
 
 ---
 
@@ -150,7 +259,6 @@ workers.run([&, preset, mixer] {
 
 <div class="chat-stack">
   <ChatMessage v-click from="QA">When samples are missing, could we let the user locate them?</ChatMessage>
-  <ChatMessage v-click from="Developer">No. That would make this much too complicated.</ChatMessage>
 </div>
 
 <div v-click class="thought-actual">
@@ -158,11 +266,15 @@ workers.run([&, preset, mixer] {
   <div><h3>Then do</h3><p>Sample loading away from main</p></div>
 </div>
 
+<div class="chat-stack">
+  <ChatMessage v-click from="Developer">Good idea. Let’s add it to the feature request list. 👍</ChatMessage>
+</div>
+
 ---
 
 # Then I try anyway
 
-```cpp {all|1-3|5-9|11-16}
+```cpp {none|1-3|5-9|11-16}
 prepareSamplerTreeAsync(..., [&](auto tree) {
     sampler.installSamplerTree(tree);
     sampler.rebuildKeySwitchMap();
@@ -185,52 +297,87 @@ prepareSamplerTreeAsync(..., [&](auto tree) {
 
 ---
 
-# QA, round three
+# QA, round four
 
-<div class="chat-stack">
-  <ChatMessage v-click from="QA">Cancel the dialog. The spinner stays forever.</ChatMessage>
-</div>
+<div class="bug-pair dense-code">
+<div>
 
-<div v-click>
+```cpp {hide|hide|hide|none|3}
+askUserToLocateSamples(..., [&](auto location) {
+    if (!location)
+        return;
 
-```cpp
-if (!location)
-    return; // exits this callback—not the preset load
+    loadSamplesAsync(*location, [&](auto samples) {
+        sampler.installSamples(samples);
+        app.notifyPresetLoaded();
+        app.setLoading(false);
+        finished = true;
+    });
+});
 ```
 
 </div>
+<div class="bug-report">
+  <div v-click="4" class="bug-link" aria-hidden="true">
+    <span class="bug-arrow">←</span>
+    <span class="bug-icon">🐛</span>
+  </div>
+  <div class="chat-stack" style="margin: 0">
+    <ChatMessage v-click="1" from="Developer">Fine. Test the missing-sample dialog.</ChatMessage>
+    <ChatMessage v-click="2" from="QA">Cancel it. The spinner stays forever.</ChatMessage>
+  </div>
+</div>
+</div>
 
-<div v-click class="thought-actual">
-  <div><h3>What I think</h3><p>Cancel is not an error. Do nothing.</p></div>
-  <div><h3>What QA gets</h3><p>A half-published sampler and an operation that never completes.</p></div>
+<div v-click="5" class="thought-actual">
+  <div><h3>What I think</h3><p><code>return</code> means “cancel the operation.”</p></div>
+  <div><h3>What actually happens</h3><p>It exits one callback. <code>completion(false)</code> is never called.</p></div>
 </div>
 
 ---
 
-# Production-ready callbacks
+# QA, one last time
 
-```text
-loadPreset()
-  └─ completeSampler(request, token, result)
-       └─ completeLocation(request, token, result)
-            └─ completeSamples(request, result)
+<div class="bug-pair dense-code">
+<div>
+
+```cpp {hide|hide|hide|none|10-11}
+void loadMissingSamplesAsync(
+    Location location,
+    std::function<void(bool)> completion)
+{
+    workers.run(
+        [location] {
+            return tryLoadSampleContent(location);
+        },
+        [&, completion = std::move(completion)](auto content) {
+            if (!content)
+                return;
+
+            sampler.installSamples(*content);
+            completion(true);
+        });
+}
 ```
 
-<div class="compact-list">
-
-- <span v-click>request identity and stale-result rejection</span>
-- <span v-click>stop-token propagation</span>
-- <span v-click>weak lifetime</span>
-- <span v-click>value / cancellation / exception translation</span>
-- <span v-click>one shared completion convention</span>
-
+</div>
+<div class="bug-report deep-callback-bug">
+  <div v-click="4" class="bug-link" aria-hidden="true">
+    <span class="bug-arrow">←</span>
+    <span class="bug-icon">🐛</span>
+  </div>
+  <div class="chat-stack" style="margin: 0">
+    <ChatMessage v-click="1" from="Developer">That’s it?? Fine. Test it one last time. Then ship it.</ChatMessage>
+    <ChatMessage v-click="2" from="QA">The file is there. But when its sample content is missing, the spinner stays forever.</ChatMessage>
+  </div>
+</div>
 </div>
 
-<div v-click class="takeaway">It works. It is also hard to audit.</div>
+<div v-click="5" class="takeaway premature-completion">We replaced structured programming with a rule every <code>return</code> must remember.</div>
 
 ---
 
-# We rebuilt a state machine by hand
+# Okay. Deep breath.
 
 ```text
 prepare tree
@@ -242,65 +389,84 @@ install samples
 notify
 ```
 
-<div v-click class="takeaway">The scheduling implementation now dominates the product requirement.</div>
+<div v-click class="takeaway">We rebuilt a state machine by hand. Maybe the code could look sequential again.</div>
 
 ---
 
 # The same workflow as a coroutine
 
-```cpp {all|1-7|9-13|15-17}
-MainActorTask loadPreset(App& app, Sampler& sampler,
-                         Preset preset, Scheduler worker) {
-    app.setLoading(true);
-    ScopeExit stopLoading([&] { app.setLoading(false); });
+<div class="code-compare dense-code coroutine-compare">
+<div>
 
+<div class="eyebrow">Previous synchronous version</div>
+
+```cpp
+void loadPreset(App& app, Sampler& sampler,
+                Preset preset, bool& finished) {
+    app.setLoading(true);
+    ScopeExit finish([&] {
+        app.notifyPresetLoaded();
+        app.setLoading(false);
+        finished = true;
+    });
     app.loadMixerState(preset);
     auto mixer = app.mixerSnapshot();
-
-    auto tree = co_await prepareSamplerTree(preset, mixer, worker);
+    auto tree = prepareSamplerTree(preset, mixer);
     sampler.installSamplerTree(tree);
     sampler.rebuildKeySwitchMap();
 
-    auto location = co_await askUserToLocateSamples(
-        sampler.missingSamples(), worker);
-    auto samples = co_await loadSamples(location, worker);
-    sampler.installSamples(std::move(samples));
-    app.notifyPresetLoaded();
+
+
+
+
+
 }
 ```
 
----
+</div>
+<div v-click="1">
 
-# What actually runs where
+<div class="eyebrow">Coroutine</div>
 
-<div class="thread-trace">
-  <div v-click class="thread-name">MAIN</div>
-  <div v-click class="thread-action">capture application state</div>
+```cpp {none|none|13-18}
+MainActorTask loadPreset(...) {
+    app.setLoading(true);
+    ScopeExit finish([&] {
+        app.notifyPresetLoaded();
+        app.setLoading(false);
+        finished = true;
+    });
+    app.loadMixerState(preset);
+    auto mixer = app.mixerSnapshot();
+    auto tree = co_await prepareSamplerTree(preset, mixer);
+    sampler.installSamplerTree(tree);
+    sampler.rebuildKeySwitchMap();
+    auto location = co_await askUserToLocateSamples(
+        sampler.missingSamples());
+    if (!location)
+        co_return;
+    auto samples = co_await loadSamples(*location);
+    sampler.installSamples(std::move(samples));
+}
+```
 
-  <div v-click class="thread-name">WORKER</div>
-  <div v-click class="thread-action">prepare sampler tree</div>
-
-  <div v-click class="thread-name">MAIN</div>
-  <div v-click class="thread-action">install tree + rebuild key switches</div>
-
-  <div v-click class="thread-name">USER</div>
-  <div v-click class="thread-action">choose missing-sample location</div>
-
-  <div v-click class="thread-name">WORKER</div>
-  <div v-click class="thread-action">load samples</div>
-
-  <div v-click class="thread-name">MAIN</div>
-  <div v-click class="thread-action">install samples + notify + clear spinner</div>
+</div>
 </div>
 
 ---
 
-# The first and final versions tell the same story
+# What coroutines give back
 
-<div class="code-compare">
+<div class="code-compare dense-code">
 <div>
 
 ```cpp
+ScopeExit finish([&] {
+    app.notifyPresetLoaded();
+    app.setLoading(false);
+    finished = true;
+});
+
 auto tree = prepareSamplerTree(
     preset, mixer);
 
@@ -312,14 +478,26 @@ sampler.rebuildKeySwitchMap();
 <div v-click>
 
 ```cpp
+ScopeExit finish([&] {
+    app.notifyPresetLoaded();
+    app.setLoading(false);
+    finished = true;
+});
+
 auto tree = co_await prepareSamplerTree(
-    preset, mixer, worker);
+    preset, mixer);
 
 sampler.installSamplerTree(tree);
 sampler.rebuildKeySwitchMap();
 ```
 
 </div>
+</div>
+
+<div v-click class="payoff-grid">
+  <div><h3>Sequential order</h3><p>The source reads in the order the work happens.</p></div>
+  <div><h3>Visible dependencies</h3><p><code>tree</code>, <code>location</code>, and <code>samples</code> remain ordinary local values.</p></div>
+  <div><h3>RAII</h3><p><code>ScopeExit</code> lives across suspension and runs when the operation exits.</p></div>
 </div>
 
 <div v-click class="takeaway">The function can suspend without surrendering its structure.</div>
