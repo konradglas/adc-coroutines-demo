@@ -12,10 +12,6 @@ void loadPreset(demo::App &app, demo::Sampler &sampler, demo::Preset preset) {
     sampler.installSamplerTree(tree);
     sampler.rebuildKeySwitchMap();
 
-    auto location = demo::askUserToLocateSamples(sampler.missingSamples());
-    auto samples = demo::loadSamples(std::move(location));
-
-    sampler.installSamples(std::move(samples));
     app.notifyPresetLoaded();
 }
 

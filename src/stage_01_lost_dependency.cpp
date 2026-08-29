@@ -17,9 +17,6 @@ void loadPreset(demo::App &app, demo::Sampler &sampler, demo::CallbackWorkers &w
 
     // These statements still run now, not when loadSamplerAsync finishes.
     sampler.rebuildKeySwitchMap(); // Reads the tree currently installed in sampler.
-    auto location = demo::askUserToLocateSamples(sampler.missingSamples());
-    auto samples = demo::loadSamples(std::move(location));
-    sampler.installSamples(std::move(samples));
     app.notifyPresetLoaded();
 }
 

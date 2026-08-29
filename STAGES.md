@@ -1,7 +1,9 @@
 # Demo stages
 
 The demo follows one preset load as it evolves from correct synchronous code into
-callback-driven asynchronous code and finally back into linear coroutine code.
+callback-driven asynchronous code and finally back into linear coroutine code. Missing
+sample recovery is not part of the original workflow; it arrives later as a QA request
+whose implementation adds two more asynchronous steps.
 
 `demo::App` represents GUI and mixer state owned by the main thread. `demo::Sampler`
 represents the live sampler, which is also tightly bound to the main thread. Their
@@ -27,8 +29,8 @@ Source: [`src/stage_00_synchronous.cpp`](src/stage_00_synchronous.cpp)
 
 The preset load is straightforward and correct. Mixer state is applied, the sampler
 tree is prepared and installed into the live sampler, the sampler rebuilds its
-key-switch map, the user locates the missing sample library, and those samples are
-loaded. `PresetLoaded` is sent only when everything is ready.
+key-switch map, and `PresetLoaded` is sent when the preset is ready. Missing samples
+remain missing; interactive recovery is not a feature yet.
 
 The loading indicator is protected by `ScopeExit`, so it is cleared on normal return,
 early return, or exception.
@@ -38,9 +40,8 @@ early return, or exception.
 That understanding is accurate. Every subsystem ends with the same preset and QA's
 consistency check passes.
 
-However, tree preparation, the modal user interaction, and sample loading all execute
-on the main thread. During those operations the application cannot process normal GUI
-events.
+However, tree preparation executes on the main thread. During that operation the
+application cannot process normal GUI events.
 
 > QA: “Loading a preset freezes the application.”
 
@@ -72,14 +73,12 @@ do not wait for its callback. In particular, `rebuildKeySwitchMap()` reads the l
 sampler's current tree; it does not know that a replacement tree is being prepared:
 
 - The key-switch map is rebuilt from the initial sampler tree.
-- The missing-sample query examines the initial tree and asks for the initial library.
-- Samples belonging to that initial state are installed.
 - `PresetLoaded` is sent before the new sampler tree exists.
 - `ScopeExit` turns the loading indicator off when `loadPreset()` returns, not when the
   asynchronous operation completes.
 
 The worker eventually installs the new sampler tree and sends `PresetLoaded` again.
-QA now sees the new mixer and sampler alongside the old key-switch and sample state.
+QA now sees the new mixer and sampler alongside the old key-switch state.
 
 ### What it demonstrates
 
@@ -97,42 +96,40 @@ Source: [`src/stage_02_callbacks_ship_it.cpp`](src/stage_02_callbacks_ship_it.cp
 
 ### What I think is happening
 
-Every dependent operation is moved inside the previous completion callback:
+The dependent main-thread operations are moved into the preparation callback:
 
 1. Prepare the sampler tree.
-2. Install it and inspect its missing samples on main.
-3. Ask the user to locate the library.
-4. Load its samples.
-5. Install the result, notify the GUI, and clear the spinner.
+2. Install it into the live sampler.
+3. Rebuild the key-switch map from the newly installed tree.
+4. Notify the GUI and clear the spinner.
 
-The new QA feature works on the developer machine. The state check passes.
+The original preset load now works without blocking main. The state check passes.
 
-> Developer: “It is ugly, but it works. Ship it.”
+> Developer: “It is a callback, but it works. Ship it.”
 
 ### What is actually happening / QA
 
-Only the happy path exists in the type and control flow. Every operation is assumed to
-produce a value and every callback captures surrounding state by reference.
+The happy path really does work. The callback restores the lost dependency and all live
+sampler mutation still happens on main. But completion is already manual: notification,
+spinner cleanup, and `finished` must all happen in the callback.
 
-There is no representation yet for:
+Then QA asks for a feature that was never part of the synchronous flow:
 
-- the user cancelling the dialog,
-- an I/O or parsing error,
-- a replacement preset request,
-- the loader or application closing before completion.
+> QA: “When samples are missing, could we let the user locate them?”
 
-QA's happy-path test passes, but the callbacks have made completion and cleanup a
-convention at the deepest indentation level.
+That requires waiting for an inherently asynchronous file dialog and then loading the
+selected samples away from main. The developer rejects it because both new operations
+would have to be inserted into the callback's completion path.
+
+> Developer: “No. That would make this much too complicated.”
 
 ### What it demonstrates
 
 - Callbacks can restore correct ordering.
-- Restoring ordering creates nesting because each later operation needs values from the
-  previous one.
-- Success is easy to demonstrate before cancellation, errors, and lifetime have been
-  designed.
-- This is the point where a useful product request starts feeling disproportionately
-  dangerous to implement.
+- Even the repaired baseline has moved completion and cleanup out of lexical scope.
+- A product request can expose asynchronous composition that the original synchronous
+  workflow never needed to represent.
+- This is the moment where a useful feature feels disproportionately dangerous to add.
 
 ## Stage 03: Miss one completion
 
@@ -140,8 +137,13 @@ Source: [`src/stage_03_missed_callback.cpp`](src/stage_03_missed_callback.cpp)
 
 ### What I think is happening
 
-The location dialog now returns `std::nullopt` when the user cancels. Cancellation is
-not an error, so the callback simply returns without loading samples.
+The developer reconsiders and implements QA's request. After installing the sampler
+tree, the callback asks the user to locate the missing library. Its callback starts
+sample loading, whose callback finally installs the samples and completes the preset
+load.
+
+The location dialog returns `std::nullopt` when the user cancels. Cancellation is not
+an error, so that callback simply returns without loading samples.
 
 ### What is actually happening / QA
 
@@ -151,8 +153,8 @@ whole preset load:
 - `finished` is never set.
 - The loading indicator is never cleared.
 - No final success or cancellation notification is sent.
-- The sampler tree and key-switch map contain the new preset, while the installed
-  samples still belong to the initial preset.
+- The sampler tree and key-switch map contain the new preset, but its missing samples
+  remain unresolved.
 
 The test harness stops after observing the dialog callback so that the executable does
 not really hang. Its final state is the state QA would observe while the spinner remains
@@ -164,6 +166,7 @@ forever.
 
 - In callback code, every branch must remember the completion contract of the entire
   outer operation.
+- Adding the QA feature turns one callback into three nested completion scopes.
 - A locally reasonable `return` can strand global UI state.
 - Partial publication makes failure more complicated than merely reporting an error.
 - The bug is omission, not an exotic thread race.
@@ -213,7 +216,8 @@ Source: [`src/stage_05_coroutine.cpp`](src/stage_05_coroutine.cpp)
 
 ### What I think is happening
 
-The final `loadPreset()` reads like the synchronous version again:
+The final `loadPreset()` reads like the original baseline extended directly with QA's
+new feature:
 
 1. Apply main-owned mixer state.
 2. Await sampler preparation on a worker.

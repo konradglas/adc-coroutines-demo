@@ -9,15 +9,14 @@ Each executable is one slide-sized stage:
 
 1. `stage_00_synchronous` — correct, linear, and blocking.
 2. `stage_01_lost_dependency` — the expensive load is moved away and statement order stops being completion order.
-3. `stage_02_callbacks_ship_it` — QA's missing-sample request works on the happy path, so we ship it.
-4. `stage_03_missed_callback` — cancelling the location dialog skips the outer completion and leaves the spinner running.
+3. `stage_02_callbacks_ship_it` — one callback repairs the original preset load, so we ship it.
+4. `stage_03_missed_callback` — QA's missing-sample request adds nested callbacks; cancelling the dialog skips the outer completion.
 5. `stage_04_callbacks_qa` — replacement, cancellation, lifetime, error, and cleanup policy accumulate around the callbacks.
 6. `stage_05_coroutine` — `stdexec-affine` restores the linear main-actor workflow while `stdexec` runs preparation on a worker pool.
 
-The complete load prepares the sampler tree on a worker, installs it into the
-main-thread-bound sampler and discovers missing samples on main, waits for the user to
-locate the library, loads those samples on a worker, then returns to main for final
-publication.
+The missing-sample feature first appears after the callback-based preset load has
+shipped. It waits for the user to locate a library, loads those samples on a worker,
+then returns to main for final publication.
 
 ## Build
 

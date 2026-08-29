@@ -61,6 +61,7 @@ Sampler::Sampler() : _mainThread(std::this_thread::get_id()) {}
 void Sampler::installSamplerTree(const PreparedSamplerTree &tree) {
     requireMainThread();
     _samplerPreset = tree.presetName;
+    _samplesPreset = tree.presetName;
     _articulations = tree.articulations;
     _missingLibrary = tree.missingLibrary;
     _missingSamples = tree.missingSamples;
@@ -81,6 +82,8 @@ MissingSamplesRequest Sampler::missingSamples() const {
 void Sampler::installSamples(LoadedSamples samples) {
     requireMainThread();
     _samplesPreset = std::move(samples.presetName);
+    _missingLibrary.clear();
+    _missingSamples.clear();
     print("main", "installed " + std::to_string(samples.count) + " sample files");
 }
 
@@ -129,7 +132,8 @@ bool App::qaCheck(const std::string &expectedPreset, const Sampler &sampler) con
                            : "FAIL: mixer=" + _mixerPreset +
                                  ", sampler=" + sampler._samplerPreset +
                                  ", key-switches=" + sampler._keySwitchPreset +
-                                 ", samples=" + sampler._samplesPreset +
+                                 ", samples=" + sampler._samplesPreset + ", missing=" +
+                                 std::to_string(sampler._missingSamples.size()) +
                                  ", loading=" + (_loading ? "true" : "false"));
     return consistent;
 }

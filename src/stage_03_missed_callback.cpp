@@ -11,6 +11,7 @@ void loadPreset(demo::App &app, demo::Sampler &sampler, demo::CallbackWorkers &w
                     sampler.installSamplerTree(tree);
                     sampler.rebuildKeySwitchMap();
 
+                    // Fine. Let's implement QA's "small" feature.
                     const auto missingSamples = sampler.missingSamples();
                     std::stop_source dialog;
                     dialog.request_stop(); // The user presses Cancel.

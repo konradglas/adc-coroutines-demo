@@ -10,22 +10,9 @@ void loadPreset(demo::App &app, demo::Sampler &sampler, demo::CallbackWorkers &w
                 [&](demo::PreparedSamplerTree tree) {
                     sampler.installSamplerTree(tree);
                     sampler.rebuildKeySwitchMap();
-
-                    const auto missingSamples = sampler.missingSamples();
-                    workers.run(
-                        [missingSamples] {
-                            return demo::askUserToLocateSamples(missingSamples);
-                        },
-                        [&](demo::SampleLibraryLocation location) {
-                            workers.run(
-                                [location] { return demo::loadSamples(location); },
-                                [&](demo::LoadedSamples samples) {
-                                    sampler.installSamples(std::move(samples));
-                                    app.notifyPresetLoaded();
-                                    app.setLoading(false);
-                                    finished = true;
-                                });
-                        });
+                    app.notifyPresetLoaded();
+                    app.setLoading(false);
+                    finished = true;
                 });
 }
 
@@ -37,8 +24,10 @@ int main() {
     auto preset = demo::concertGrand();
     bool finished = false;
 
-    // The happy path works. Ship it to QA.
+    // The original workflow works. Ship it to QA.
     loadPreset(app, sampler, workers, preset, finished);
     mainQueue.pumpUntil([&] { return finished; });
+
+    // QA: "Could we let the user locate missing samples?"
     return app.qaCheck(preset.name, sampler) ? 0 : 1;
 }
