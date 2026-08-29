@@ -35,3 +35,15 @@ Run a stage from the repository root, for example:
 The deliberately broken stages are deterministic. They demonstrate a lost dependency
 and a missed completion path without relying on undefined behaviour or actually hanging
 the test process.
+
+## Slides
+
+The versioned Slidev deck lives in [`slides/`](slides/). To edit and present it:
+
+```sh
+cd slides
+npm install
+npm run dev
+```
+
+See [`slides/README.md`](slides/README.md) for build and export commands.

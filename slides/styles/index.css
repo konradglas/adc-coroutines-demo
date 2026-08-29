@@ -1,0 +1,247 @@
+:root {
+  --slide-bg: #101010;
+  --slide-fg: #f3f3f3;
+  --slide-muted: #a5a5a5;
+  --slide-line: #3a3a3a;
+  --slide-soft: #222;
+}
+
+html,
+body,
+#app,
+.slidev-layout {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+}
+
+.slidev-layout {
+  background: var(--slide-bg);
+  color: var(--slide-fg);
+  padding: 3.1rem 4rem;
+}
+
+.slidev-vclick-target {
+  backdrop-filter: none !important;
+  filter: none !important;
+  transform: none !important;
+  transition: none !important;
+  will-change: auto !important;
+}
+
+.slidev-layout h1,
+.slidev-layout h2,
+.slidev-layout h3 {
+  color: var(--slide-fg);
+  font-weight: 650;
+  letter-spacing: -0.025em;
+}
+
+.slidev-layout h1 {
+  font-size: 2.25rem;
+  line-height: 1.08;
+  margin-bottom: 1.15rem;
+}
+
+.slidev-layout h2 {
+  font-size: 1.5rem;
+}
+
+.slidev-layout p,
+.slidev-layout li {
+  font-size: 1.16rem;
+  line-height: 1.45;
+}
+
+.slidev-layout strong {
+  color: #fff;
+  font-weight: 700;
+}
+
+.slidev-layout blockquote {
+  border-left: 3px solid #777;
+  color: #fff;
+}
+
+.slidev-layout code {
+  font-family: "Fira Code", "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+  font-feature-settings: "calt" 1;
+  font-variant-ligatures: contextual;
+}
+
+.slidev-layout :not(pre) > code {
+  background: #2a2a2a;
+  color: #fff;
+  border-radius: 0.3rem;
+  padding: 0.08rem 0.28rem;
+}
+
+.slidev-layout pre {
+  background: #22272e !important;
+  border: 1px solid #444c56;
+  border-radius: 0.6rem;
+  box-shadow: none;
+  font-size: 0.83rem !important;
+  line-height: 1.38 !important;
+}
+
+.slidev-layout pre code {
+  font-size: inherit !important;
+}
+
+.slidev-layout .slidev-code:has(.line.highlighted) .line:not(.highlighted) {
+  opacity: 0.42;
+}
+
+.slidev-layout .slidev-code .line.highlighted {
+  background: #373e47;
+  opacity: 1;
+}
+
+.slidev-layout.cover {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.slidev-layout.cover h1 {
+  max-width: 820px;
+  font-size: 3.25rem;
+  margin-bottom: 1.35rem;
+}
+
+.subtitle {
+  color: var(--slide-muted);
+  font-size: 1.08rem;
+}
+
+.eyebrow {
+  color: var(--slide-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+}
+
+.chat-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  max-width: 900px;
+  margin: 1.5rem auto 0;
+}
+
+.chat-message {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.chat-message.from-developer {
+  align-items: flex-end;
+}
+
+.chat-author {
+  color: var(--slide-muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+  margin: 0 0.45rem 0.2rem;
+}
+
+.chat-bubble {
+  max-width: 72%;
+  background: #292929;
+  border: 1px solid #474747;
+  border-radius: 1rem 1rem 1rem 0.25rem;
+  color: #fff;
+  font-size: 1.18rem;
+  line-height: 1.36;
+  padding: 0.72rem 1rem;
+}
+
+.from-developer .chat-bubble {
+  background: #e8e8e8;
+  border-color: #e8e8e8;
+  border-radius: 1rem 1rem 0.25rem 1rem;
+  color: #111;
+}
+
+.chat-bubble p {
+  font-size: inherit;
+  line-height: inherit;
+  margin: 0;
+}
+
+.thought-actual {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.2rem;
+  margin-top: 1.2rem;
+}
+
+.thought-actual > div {
+  background: #191919;
+  border: 1px solid var(--slide-line);
+  border-radius: 0.6rem;
+  padding: 1rem 1.2rem;
+}
+
+.thought-actual h3 {
+  color: var(--slide-muted);
+  font-size: 0.82rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin: 0 0 0.55rem;
+}
+
+.thread-trace {
+  display: grid;
+  grid-template-columns: 7rem 1fr;
+  gap: 0.7rem 1rem;
+  margin-top: 1.35rem;
+  align-items: center;
+}
+
+.thread-name {
+  color: var(--slide-muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-align: right;
+}
+
+.thread-action {
+  border-left: 2px solid #666;
+  padding: 0.45rem 0.8rem;
+  font-family: "Fira Code", "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+  font-size: 0.92rem;
+}
+
+.takeaway {
+  border-top: 1px solid var(--slide-line);
+  color: #fff;
+  font-size: 1.25rem;
+  font-weight: 650;
+  margin-top: 1.4rem;
+  padding-top: 1rem;
+}
+
+.muted {
+  color: var(--slide-muted);
+}
+
+.compact-list li {
+  margin: 0.3rem 0;
+}
+
+.code-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.code-compare pre {
+  height: 100%;
+}

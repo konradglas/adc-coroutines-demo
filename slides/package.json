@@ -1,0 +1,15 @@
+{
+  "name": "adc-coroutines-slides",
+  "private": true,
+  "scripts": {
+    "dev": "slidev",
+    "build": "slidev build",
+    "export": "slidev export --output dist/adc-coroutines.pdf",
+    "export:clicks": "slidev export --with-clicks --output dist/adc-coroutines-clicks.pdf"
+  },
+  "devDependencies": {
+    "@slidev/cli": "52.19.1",
+    "@slidev/theme-default": "0.25.0",
+    "playwright-chromium": "^1.62.1"
+  }
+}
