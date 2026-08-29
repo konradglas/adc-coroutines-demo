@@ -1,0 +1,6 @@
+[submodule "third_party/stdexec-affine"]
+	path = third_party/stdexec-affine
+	url = https://github.com/konradglas/stdexec-affine.git
+[submodule "third_party/stdexec"]
+	path = third_party/stdexec
+	url = https://github.com/NVIDIA/stdexec.git
