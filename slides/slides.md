@@ -6,15 +6,12 @@ colorSchema: dark
 transition: none
 lineNumbers: false
 mdc: true
+background: /title-card.png
 ---
-
-<div class="eyebrow">Audio Developer Conference · Konrad Glas</div>
-
-# std::future Is Not the Future
 
 ---
 
-# The perfectly correct feature
+# Lets load some data!
 
 ```cpp
 void loadPreset(...) {
@@ -28,15 +25,14 @@ void loadPreset(...) {
     app.loadMixerState(preset);
     auto mixer = app.mixerSnapshot();
 
-    auto tree = prepareSamplerTree(std::move(preset),
-                                   std::move(mixer));
+    auto tree = prepareSamplerTree(preset, mixer);
 
     sampler.installSamplerTree(tree);
-    sampler.rebuildKeySwitchMap();
+    sampler.buildKeyswitchMap(preset);
 }
 ```
 
-<div v-click class="takeaway">Correct. Sequential. Scope-bound. And running entirely on main.</div>
+<div v-click class="takeaway">Correct. Sequential. Scope-bound. And running entirely on main. 👍</div>
 
 ---
 
@@ -44,9 +40,9 @@ void loadPreset(...) {
 
 <div class="chat-stack">
   <ChatMessage v-click from="Developer">Done. Can you give it a quick test?</ChatMessage>
-  <ChatMessage v-click from="QA">Loading a preset freezes the application.</ChatMessage>
-  <ChatMessage v-click from="Developer">Do you want a working slow application or a broken fast one??</ChatMessage>
-  <ChatMessage v-click from="QA">I would like to have both...</ChatMessage>
+  <ChatMessage v-click from="QA">Seems to do it's job ... but I get the spinning wheel of death for about 2 seconds! </ChatMessage>
+  <ChatMessage v-click from="Developer">Hm OK ...  Don't worry ...</ChatMessage>
+  <ChatMessage v-click from="Developer">I know THREADS!</ChatMessage>
 </div>
 
 ---
@@ -59,7 +55,7 @@ workers.run([&, preset, mixer] {
     sampler.installSamplerTree(tree);
 });
 
-sampler.rebuildKeySwitchMap();
+sampler.buildKeyswitchMap(preset);
 app.notifyPresetLoaded();
 ```
 
@@ -79,8 +75,7 @@ app.notifyPresetLoaded();
     Sometimes some part of the old preset is still in there.<br>
     And sometimes it plainly crashes.
   </ChatMessage>
-  <ChatMessage v-click from="Developer">Those cannot all be the same bug.</ChatMessage>
-  <ChatMessage v-click from="QA">They are all the same button.</ChatMessage>
+  <ChatMessage v-click from="Developer">LIES!</ChatMessage>
 </div>
 
 ---
@@ -89,21 +84,21 @@ app.notifyPresetLoaded();
 
 ```cpp {none|1|2}
 sampler.installSamplerTree(tree);
-sampler.rebuildKeySwitchMap();
+sampler.buildKeyswitchMap(preset);
 ```
 
 <div v-click class="thought-actual">
   <div>
     <h3>What I assumed</h3>
-    <p><code>rebuildKeySwitchMap()</code> rebuilds whatever it needs.</p>
+    <p><code>rebuildKeySwitchMap(tree)</code> <br> Just depends on the preset data</p>
   </div>
   <div>
     <h3>What QA uncovered</h3>
-    <p>It reads the tree already installed in <code>sampler</code>.</p>
+    <p>The Keyswitch map is dependent on an already updated sampler tree inside <code>sampler</code>.</p>
   </div>
 </div>
 
-<div v-click class="takeaway">I encoded the dependency in statement order—and then casually split the statements apart.</div>
+<div v-click class="takeaway">I encoded the dependency in statement order - and I lost that sequential dependency completely.</div>
 
 ---
 
@@ -112,14 +107,20 @@ sampler.rebuildKeySwitchMap();
 <div class="race-pair">
 <div>
 
-```cpp {none|none|1-4|6-7|3,6-7}
+```cpp {none|none|7-11|13,3|13-14,10}
+
+ScopeExit finish([&] {
+    app.notifyPresetLoaded();
+    app.setLoading(false);
+    finished = true;
+});
+
 workers.run([&, preset, mixer] {
     auto tree = prepareSamplerTree(preset, mixer);
     sampler.installSamplerTree(tree);
 });
 
 sampler.rebuildKeySwitchMap();
-app.notifyPresetLoaded();
 ```
 
 </div>
@@ -134,7 +135,7 @@ app.notifyPresetLoaded();
     <p>Installs the new tree whenever it finishes.</p>
   </div>
 
-  <span v-if="$clicks >= 3" class="race-car-icon" aria-hidden="true">🏎️</span>
+<span v-if="$clicks >= 3" class="race-car-icon" aria-hidden="true">🏎️</span>
 
   <div v-if="$clicks >= 3" class="race-step race-thread">
     <h3>Main</h3>
@@ -152,9 +153,9 @@ app.notifyPresetLoaded();
 
 ---
 
-# Fine. Restore the order—and main-thread affinity.
+# Fine. Restore the order - and main-thread affinity.
 
-```cpp {none|7-9|10-17|none}
+```cpp {none|7-9|10-13|none}
 ScopeExit finish([&] {
     app.notifyPresetLoaded();
     app.setLoading(false);
@@ -167,14 +168,11 @@ workers.run([&, preset, mixer] {
     mainQueue.post([&, tree = std::move(tree)] {
         sampler.installSamplerTree(tree);
         sampler.rebuildKeySwitchMap();
-        app.notifyPresetLoaded();
-        app.setLoading(false);
-        finished = true;
     });
 });
 ```
 
-<div v-if="$clicks >= 3" class="takeaway">Ordering restored. Main-thread affinity restored. Ship it.</div>
+<div v-if="$clicks >= 3" class="takeaway">Ordering restored. Main-thread affinity restored. Ship it 🚢</div>
 
 ---
 
@@ -184,16 +182,14 @@ workers.run([&, preset, mixer] {
   <ChatMessage v-click from="Developer">All fixed. Can you test it again?</ChatMessage>
   <ChatMessage v-click from="QA">
     The spinner disappears immediately.<br>
-    For a moment, the old sound is still there.<br>
-    Then the new preset appears—and the UI refreshes again.
+    But the UI doesn't refresh with the new state!<br>
   </ChatMessage>
-  <ChatMessage v-click from="Developer">So it is fast now.</ChatMessage>
-  <ChatMessage v-click from="QA">The UI is lying now.</ChatMessage>
+  <ChatMessage v-click from="Developer">So it is fast now!</ChatMessage>
 </div>
 
 ---
 
-<h1>{{ $clicks < 5 ? 'The function returned. The operation didn’t.' : 'Fine. Complete it manually.' }}</h1>
+<h1>{{ $clicks < 5 ? "Oops!" : 'Fine. Complete it manually.' }}</h1>
 
 <div v-show="$clicks < 5">
 <div class="race-pair">
@@ -228,7 +224,7 @@ workers.run(...);
 </div>
 </div>
 
-<div v-if="$clicks >= 4" class="takeaway premature-completion">The guard covered the function call—not the asynchronous operation.</div>
+<div v-if="$clicks >= 4" class="takeaway premature-completion">RAII is so nice! But cannot use it here :(</div>
 </div>
 
 <div v-show="$clicks >= 5">
@@ -274,7 +270,7 @@ workers.run([&, preset, mixer] {
 
 # Then I try anyway
 
-```cpp {none|1-3|5-9|11-16}
+```cpp {none|1-3|5-8|9-14}
 prepareSamplerTreeAsync(..., [&](auto tree) {
     sampler.installSamplerTree(tree);
     sampler.rebuildKeySwitchMap();
@@ -297,45 +293,6 @@ prepareSamplerTreeAsync(..., [&](auto tree) {
 
 ---
 
-# QA, round four
-
-<div class="bug-pair dense-code">
-<div>
-
-```cpp {hide|hide|hide|none|3}
-askUserToLocateSamples(..., [&](auto location) {
-    if (!location)
-        return;
-
-    loadSamplesAsync(*location, [&](auto samples) {
-        sampler.installSamples(samples);
-        app.notifyPresetLoaded();
-        app.setLoading(false);
-        finished = true;
-    });
-});
-```
-
-</div>
-<div class="bug-report">
-  <div v-click="4" class="bug-link" aria-hidden="true">
-    <span class="bug-arrow">←</span>
-    <span class="bug-icon">🐛</span>
-  </div>
-  <div class="chat-stack" style="margin: 0">
-    <ChatMessage v-click="1" from="Developer">Fine. Test the missing-sample dialog.</ChatMessage>
-    <ChatMessage v-click="2" from="QA">Cancel it. The spinner stays forever.</ChatMessage>
-  </div>
-</div>
-</div>
-
-<div v-click="5" class="thought-actual">
-  <div><h3>What I think</h3><p><code>return</code> means “cancel the operation.”</p></div>
-  <div><h3>What actually happens</h3><p>It exits one callback. <code>completion(false)</code> is never called.</p></div>
-</div>
-
----
-
 # QA, one last time
 
 <div class="bug-pair dense-code">
@@ -346,8 +303,7 @@ void loadMissingSamplesAsync(
     Location location,
     std::function<void(bool)> completion)
 {
-    workers.run(
-        [location] {
+    workers.run([location] () {
             return tryLoadSampleContent(location);
         },
         [&, completion = std::move(completion)](auto content) {
@@ -389,11 +345,9 @@ install samples
 notify
 ```
 
-<div v-click class="takeaway">We rebuilt a state machine by hand. Maybe the code could look sequential again.</div>
+<div v-click class="takeaway">It looks pretty simple! But it's blocking ...</div>
 
 ---
-
-# The same workflow as a coroutine
 
 <div class="code-compare dense-code coroutine-compare">
 <div>
@@ -428,8 +382,9 @@ void loadPreset(App& app, Sampler& sampler,
 
 <div class="eyebrow">Coroutine</div>
 
-```cpp {none|none|13-18}
-MainActorTask loadPreset(...) {
+```cpp {none|none|14-19}
+stdexec::task<void> loadPreset(App& app, Sampler& sampler,
+                Preset preset, bool& finished) {
     app.setLoading(true);
     ScopeExit finish([&] {
         app.notifyPresetLoaded();
@@ -525,7 +480,7 @@ void loadPreset(...) {
 <div class="eyebrow">Coroutine</div>
 
 ```cpp {none|1|2|4}
-MainActorTask loadPreset(...) {
+stdexec::task<void> loadPreset(...) {
     auto tree = co_await prepareSamplerTree(...);
     // ...
     co_return;
@@ -536,8 +491,8 @@ MainActorTask loadPreset(...) {
 </div>
 
 <div class="coroutine-keywords">
-  <div v-click="1"><h3><code>MainActorTask</code></h3><p>A coroutine-aware return type. It defines how the operation completes and where its body resumes.</p></div>
-  <div v-click="2"><h3><code>co_await</code></h3><p>May suspend this function until the operation completes—without blocking the thread.</p></div>
+  <div v-click="1"><h3><code>stdexec::task</code></h3><p>A coroutine-aware return type. It defines how the operation completes and where its body resumes.</p></div>
+  <div v-click="2"><h3><code>co_await</code></h3><p>May suspend this function until the operation completes - without blocking the thread.</p></div>
   <div v-click="3"><h3><code>co_return</code></h3><p>Completes the coroutine. Normal scope exit still destroys locals and runs RAII cleanup.</p></div>
 </div>
 
@@ -545,17 +500,35 @@ MainActorTask loadPreset(...) {
 
 ---
 
+# But how does this work? And how do I use it?
+
+<div class="agenda-questions">
+<v-clicks>
+
+- What is an asynchronous operation?
+- How do coroutines work conceptually?
+- How do I get from `void` to `task<void>`?
+- What thread am I on after to `co_await` ?
+- How do I cancel obsolete work ?
+- How do I safely tear down the whole thing ?
+- Which libraries are out there to get my hands dirty ?
+
+</v-clicks>
+</div>
+
+---
+
 # Three types, three jobs
 
 ```cpp {none|1|1|2}
-MainActorTask loadPreset(...) {
+stdexec::task loadPreset(...) {
     auto tree = co_await prepareSamplerTree(...);
 }
 ```
 
 <div class="coroutine-keywords type-overview">
-  <div v-click="1"><h3>Return object</h3><p>The <code>MainActorTask</code> object handed to the caller. It represents this coroutine.</p></div>
-  <div v-click="2"><h3>Promise type</h3><p><code>MainActorTask::promise_type</code>: compiler-facing state stored inside the coroutine frame.</p></div>
+  <div v-click="1"><h3>Return object</h3><p>The <code>stdexec::task</code> object handed to the caller. It represents this coroutine.</p></div>
+  <div v-click="2"><h3>Promise type</h3><p><code>stdexec::task::promise_type</code>: compiler-facing state stored inside the coroutine frame.</p></div>
   <div v-click="3"><h3>Awaitable</h3><p><code>prepareSamplerTree(...)</code> returns one. It defines the suspension point: whether execution pauses, what runs next, and what value the coroutine receives when it continues.</p></div>
 </div>
 
@@ -617,7 +590,7 @@ struct MainActorTask::promise_type {
     <div>
       <code>initial_suspend()</code>
       <strong>Startup policy</strong>
-      <span>Should the task start eagerly—or wait until someone starts it?</span>
+      <span>Should the task start eagerly - or wait until someone starts it?</span>
     </div>
     <div>
       <code>final_suspend()</code>
@@ -629,7 +602,7 @@ struct MainActorTask::promise_type {
   <div v-click="5"><code>await_transform</code> can customize every <code>co_await</code> in this coroutine.</div>
 </div>
 
-<div v-click="6" class="takeaway">This is a compiler protocol—not <code>std::promise</code>.</div>
+<div v-click="6" class="takeaway">This is a compiler protocol - not <code>std::promise</code>.</div>
 
 ---
 
@@ -783,7 +756,7 @@ struct MainActorTask {
 
 </div>
 
-<div v-click="3" class="takeaway">A task is commonly awaitable—so one task can suspend for another.</div>
+<div v-click="3" class="takeaway">A task is commonly awaitable - so one task can suspend for another.</div>
 
 ---
 
@@ -967,7 +940,7 @@ std::coroutine_handle<> final_awaiter::await_suspend(
   <span>child <code>final_suspend</code></span><b>→</b><span>parent resumes</span><b>→</b><span>parent <code>final_suspend</code></span><b>→</b><span>grandparent resumes</span>
 </div>
 
-<div v-click="3" class="takeaway">A linked chain of coroutine frames—not a growing chain of native stack frames.</div>
+<div v-click="3" class="takeaway">A linked chain of coroutine frames - not a growing chain of native stack frames.</div>
 
 ---
 
@@ -1194,7 +1167,7 @@ auto promise_type::await_transform(
 }
 ```
 
-  <p>The returned wrapper implements the affinity—not the hook by itself.</p>
+  <p>The returned wrapper implements the affinity - not the hook by itself.</p>
 </div>
 
 </div>
@@ -1275,7 +1248,7 @@ void onLoadPreset() {
 }
 ```
 
-<div v-click="1" class="orphan-caption">This merely creates a lazy task—and then throws the task object away.</div>
+<div v-click="1" class="orphan-caption">This merely creates a lazy task - and then throws the task object away.</div>
 
 </div>
 </div>
@@ -1322,7 +1295,7 @@ auto preview = affine::spawn(
 </div>
 
 <div v-click="4" class="scope-ownership-note">
-  Keep a <code>TaskHandle</code> only when you need to close—and request cancellation for—that subtree later.
+  Keep a <code>TaskHandle</code> only when you need to close - and request cancellation for - that subtree later.
 </div>
 
 <div v-click="5" class="takeaway">Each spawned task is retained by its structural parent until that subtree completes.</div>
@@ -1374,7 +1347,7 @@ root.shutdown_and_wait();
 
 ---
 
-# <code>close()</code> is a request—not a wrecking ball
+# <code>close()</code> is a request - not a wrecking ball
 
 <div class="close-request-call">
 
@@ -1509,7 +1482,7 @@ root.shutdown_and_wait();
 </div>
 </div>
 
-<div v-click="4" class="takeaway">That API is the result of choosing a foundation—and filling its plug-in-specific gaps.</div>
+<div v-click="4" class="takeaway">That API is the result of choosing a foundation - and filling its plug-in-specific gaps.</div>
 
 ---
 
@@ -1546,7 +1519,7 @@ root.shutdown_and_wait();
   <div v-click="1" class="framework-card">
     <div class="framework-name">jbaldwin/libcoro</div>
     <strong>The nicest toolbox</strong>
-    <span>Small enough to understand, with tasks, schedulers, thread pools and useful awaitables. Initially my favourite—and used in production.</span>
+    <span>Small enough to understand, with tasks, schedulers, thread pools and useful awaitables. Initially my favourite - and used in production.</span>
     <div v-click="2" class="framework-hesitation framework-tradeoff">
       <b>What remains ours</b>
       It gives flexible primitives; I still decide how task trees are owned and synchronously torn down with the plug-in.
@@ -1787,4 +1760,4 @@ struct COBALT_PROMISE_ALIGN task_promise
   <div v-click="3"><strong>The frame itself</strong><span>MSVC needed stronger promise alignment.</span></div>
 </div>
 
-<div v-click="4" class="takeaway">Frameworks remove repeated control-flow plumbing. They do not repeal C++ lifetime rules—or compiler bugs.</div>
+<div v-click="4" class="takeaway">Frameworks remove repeated control-flow plumbing. They do not repeal C++ lifetime rules - or compiler bugs.</div>
