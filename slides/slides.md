@@ -505,15 +505,102 @@ stdexec::task<void> loadPreset(...) {
 <div class="agenda-questions">
 <v-clicks>
 
-- What is an asynchronous operation?
-- How do coroutines work conceptually?
-- How do I get from `void` to `task<void>`?
-- What thread am I on after to `co_await` ?
-- How do I cancel obsolete work ?
-- How do I safely tear down the whole thing ?
-- Which libraries are out there to get my hands dirty ?
+- What is an asynchronous operation
+- How do coroutines work conceptually
+- How do I get from `void` to `task<void>`
+- What thread am I on after the `co_await`
+- How do I cancel obsolete work
+- How do I safely tear down the whole thing
+- Which libraries are out there to get my hands dirty
 
 </v-clicks>
+</div>
+
+---
+
+# What is an asynchronous operation
+
+Schedule a heavy task on some worker
+
+<div>
+
+```cpp
+void doSomeHeavyTask() {
+  _myFuture = worker.scheduleOnThread([](auto promise) {
+    ...
+    promise.setValue();
+  });
+  _myFuture.then([this] { onHeavyTaskDone(); });
+}
+```
+
+</div>
+
+---
+
+<div>
+
+```cpp {all|1-5|7-11|13-16|all}
+void createSomeProcessor() {
+  if (!_sampleRate.has_value() || !_channelLayout.has_value())
+    return;
+  createProcessor(*_sampleRate, *_channelLayout);
+}
+
+// host callbacks
+void setChannelLayout(auto layout) override {
+  _channelLayout = layout;
+  createSomeProcessor();
+}
+
+void setSampleRate(int sampleRate) override {
+  _sampleRate = sampleRate;
+  createSomeProcessor();
+}
+
+```
+
+<v-clicks>
+
+Async doesn’t mean “run on another thread.”
+
+It means the operation can start now and complete later.
+
+</v-clicks>
+</div>
+
+---
+
+# Transformed into coroutines
+
+<div>
+
+```cpp {none|3-4|5|9-14|none}
+task<void> createSomeProcessor() {
+  for (;;) {
+    auto [sampleRate, channelLayout] = co_await when_all(_sampleRate.value(), _channelLayout.value());
+    createProcessor(sampleRate, channelLayout);
+    co_await when_any(_sampleRate.changed(), _channelLayout.changed());
+  }
+}
+
+void setChannelLayout(auto layout) override {
+  _channelLayout.setValue(layout);
+}
+void setSampleRate(int sampleRate) override {
+  _sampleRate.setValue(sampleRate);
+}
+
+```
+
+<v-clicks>
+
+`_sampleRate` and `_channelLayout` become awaitable values.
+
+No more "do we have everything yet?" checks scattered across the setters.
+
+</v-clicks>
+
 </div>
 
 ---
