@@ -174,7 +174,7 @@ export const scenarios: Record<string, CallStackScenario> = {
   },
 
   callbacks: {
-    threads: ['Host thread'],
+    threads: ['Main'],
     heapEmpty: 'none: _sampleRate and _channelLayout are members',
     code: [
       'void createSomeProcessor() {',
@@ -191,41 +191,41 @@ export const scenarios: Record<string, CallStackScenario> = {
     steps: [
       {
         caption: 'Same host, callback style. Two values arrive in any order.',
-        threads: { 'Host thread': ['wait|Host::waitForEvents()', 'loop|Host::run()'] },
+        threads: { Main: mainIdle },
         heap: [],
       },
       {
         line: 2,
         caption: 'The layout arrives first. createSomeProcessor() checks: no sample rate yet, return.',
         threads: {
-          'Host thread': ['call|createSomeProcessor()', 'call|Plugin::setChannelLayout()', 'loop|Host::configureBuses()', 'loop|Host::run()'],
+          Main: ['call|createSomeProcessor()', 'call|Plugin::setChannelLayout()', 'loop|Host::configureBuses()', 'loop|NativeEventLoop::run()', 'loop|main()'],
         },
         heap: [],
       },
       {
         line: 3,
-        caption: 'The sample rate arrives. Both are there, so the processor is created inside the host’s callback.',
+        caption: 'The sample rate arrives. Both are there, so the processor is created on Main, inside the host’s callback.',
         threads: {
-          'Host thread': [
+          Main: [
             'call|createProcessor()',
             'call|createSomeProcessor()',
             'call|Plugin::setSampleRate()',
             'loop|Host::prepareToPlay()',
-            'loop|Host::run()',
+            'loop|NativeEventLoop::run()', 'loop|main()',
           ],
         },
         heap: [],
       },
       {
         caption: 'Async doesn’t mean “run on another thread”. It means the operation can start now and complete later.',
-        threads: { 'Host thread': ['wait|Host::waitForEvents()', 'loop|Host::run()'] },
+        threads: { Main: mainIdle },
         heap: [],
       },
     ],
   },
 
   event: {
-    threads: ['Host thread'],
+    threads: ['Main'],
     code: [
       'task<void> createSomeProcessor() {',
       '  for (;;) {',
@@ -242,46 +242,45 @@ export const scenarios: Record<string, CallStackScenario> = {
         line: 3,
         caption: 'Started while the plugin initialises. Neither value is known yet, so it suspends right away.',
         threads: {
-          'Host thread': [
+          Main: [
             'body|createSomeProcessor() (resume)',
             'resume|handle.resume()',
             'call|scope.spawn(createSomeProcessor())',
             'call|Plugin::initialise()',
             'loop|Host::loadPlugin()',
-            'loop|Host::run()',
+            'loop|NativeEventLoop::run()', 'loop|main()',
           ],
         },
         heap: [{ name: 'createSomeProcessor', state: 'suspended', note: 'waiting for both values' }],
       },
       {
         caption: 'Back to the host. No executor, no queue: just a frame waiting for a value.',
-        threads: { 'Host thread': ['wait|Host::waitForEvents()', 'loop|Host::run()'] },
+        threads: { Main: mainIdle },
         heap: [{ name: 'createSomeProcessor', state: 'suspended', note: 'waiting for both values' }],
       },
       {
         caption: 'The host sets the channel layout. when_all still needs the sample rate, so setValue() just returns.',
         threads: {
-          'Host thread': [
+          Main: [
             'call|AwaitableValue::setValue()',
             'call|Plugin::setChannelLayout()',
             'loop|Host::configureBuses()',
-            'loop|Host::run()',
+            'loop|NativeEventLoop::run()', 'loop|main()',
           ],
         },
         heap: [{ name: 'createSomeProcessor', state: 'suspended', note: 'waiting for sample rate', locals: ['layout'] }],
       },
       {
         line: 5,
-        caption: 'The sample rate completes when_all. setValue() resumes the frame inline, on the host’s thread, inside its callback.',
+        caption: 'The sample rate completes when_all. setValue() resumes the frame inline, on Main, inside the host’s callback.',
         threads: {
-          'Host thread': [
-            'call|createProcessor()',
+          Main: [
             'body|createSomeProcessor() (resume)',
             'resume|handle.resume()',
             'call|AwaitableValue::setValue()',
             'call|Plugin::setSampleRate()',
             'loop|Host::prepareToPlay()',
-            'loop|Host::run()',
+            'loop|NativeEventLoop::run()', 'loop|main()',
           ],
         },
         heap: [{ name: 'createSomeProcessor', state: 'running', note: 'inside setSampleRate()', locals: ['rate', 'layout'] }],
@@ -289,7 +288,7 @@ export const scenarios: Record<string, CallStackScenario> = {
       {
         line: 6,
         caption: 'Next co_await: the frame parks, setValue() returns, and the host’s callback finishes.',
-        threads: { 'Host thread': ['wait|Host::waitForEvents()', 'loop|Host::run()'] },
+        threads: { Main: mainIdle },
         heap: [{ name: 'createSomeProcessor', state: 'suspended', note: 'waiting for a change' }],
       },
     ],
