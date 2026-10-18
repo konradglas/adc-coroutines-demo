@@ -520,25 +520,9 @@ stdexec::task<void> loadPreset(...) {
 
 # Why are coroutines non-blocking?
 
-<v-clicks>
-
-- Coroutines are functions that can be suspended and resumed.
-
-- Each suspension point splits a coroutine into "chunks of work".
-
-- State the chunks need is "tucked away" inside the coroutine frame.
-
-- Each chunk is usually run by an "Executor", for example a worker thread or the main thread. Or by no executor at all: resumed directly.
-
-- The awaitable or task type decides which one.
-
-- The Executor runs that chunk until the next suspension point.
-
-</v-clicks>
-
----
-
 <p class="muted">Coroutines are functions that can be suspended and resumed.</p>
+
+<div class="dense-code">
 
 ```cpp {all|5,8|1-3,5|4-5,7-8|7-10|2,8|all}
 task<void> mySuspendingFunction() {
@@ -553,17 +537,21 @@ task<void> mySuspendingFunction() {
 }
 ```
 
+</div>
+
 <div class="coro-anatomy" :class="{ focusing: $clicks >= 1 && $clicks <= 5 }">
   <div v-click="1" :class="{ active: $clicks === 1 }"><h3>Suspension point</h3><p>Every <code>co_await</code> may pause here and return control.</p></div>
   <div v-click="2" :class="{ active: $clicks >= 2 && $clicks <= 4 }"><h3>Chunk of work</h3><p>Runs uninterrupted from one suspension point to the next.</p></div>
   <div v-click="5" :class="{ active: $clicks === 5 }"><h3>State in the frame</h3><p>Locals the next chunks need survive the suspension.</p></div>
 </div>
 
+<div v-click="7" class="takeaway">Between two chunks, someone has to call <code>resume()</code>. Who, and on which thread, is next.</div>
+
 ---
 clicks: 3
 ---
 
-# Waiting the old way
+# Waiting by blocking
 
 <CallStacks scenario="blocking" :step="$clicks" />
 
@@ -579,7 +567,7 @@ clicks: 8
 clicks: 3
 ---
 
-# Events the old way
+# Where does this logic live?
 
 <CallStacks scenario="callbacks" :step="$clicks" :slots="6" />
 
@@ -587,9 +575,9 @@ clicks: 3
 clicks: 4
 ---
 
-# Resumed by an event
+# The same logic, in one place
 
-<CallStacks scenario="event" :step="$clicks" />
+<CallStacks scenario="event" :step="$clicks" code-size="0.62rem" :slots="6" />
 
 ---
 clicks: 3
