@@ -34,6 +34,15 @@ void loadPreset(...) {
 
 <div v-click class="takeaway">Correct. Sequential. Scope-bound. And running entirely on main. 👍</div>
 
+
+<!--
+the real workflow: mixer → tree → install → keyswitch map
+ScopeExit = "done", always — even on exceptions
+(don't hint at the ordering dependency yet)
+
+[click] all correct… all on main
+-->
+
 ---
 
 # QA, round one
@@ -44,6 +53,19 @@ void loadPreset(...) {
   <ChatMessage v-click from="Developer">Hm OK ...  Don't worry ...</ChatMessage>
   <ChatMessage v-click from="Developer">I know THREADS!</ChatMessage>
 </div>
+
+
+<!--
+proud, breezy
+
+[click] "quick test?"
+
+[click] QA: works · 2 s spinner
+
+[click] defensive
+
+[click] THREADS! — beat
+-->
 
 ---
 
@@ -60,6 +82,17 @@ app.notifyPresetLoaded();
 ```
 
 <div v-click class="takeaway">Same sequence, less blocking. Ship it.</div>
+
+
+<!--
+slow line → worker, done
+
+[click] build + install off main
+
+[click] the rest stays on main
+
+[click] confident. ship it
+-->
 
 ---
 
@@ -78,27 +111,16 @@ app.notifyPresetLoaded();
   <ChatMessage v-click from="Developer">LIES!</ChatMessage>
 </div>
 
----
 
-# What QA found
+<!--
+[click] terser: "try it now"
 
-```cpp {none|1|2}
-sampler.installSamplerTree(tree);
-sampler.buildKeyswitchMap(preset);
-```
+[click] QA: weird…
 
-<div v-click class="thought-actual">
-  <div>
-    <h3>What I assumed</h3>
-    <p><code>rebuildKeySwitchMap(tree)</code> <br> Just depends on the preset data</p>
-  </div>
-  <div>
-    <h3>What QA uncovered</h3>
-    <p>The Keyswitch map is dependent on an already updated sampler tree inside <code>sampler</code>.</p>
-  </div>
-</div>
+[click] three symptoms — let them land
 
-<div v-click class="takeaway">I encoded the dependency in statement order - and I lost that sequential dependency completely.</div>
+[click] LIES!
+-->
 
 ---
 
@@ -107,7 +129,7 @@ sampler.buildKeyswitchMap(preset);
 <div class="race-pair">
 <div>
 
-```cpp {none|none|7-11|13,3|13-14,10}
+```cpp {none|13|10,13|8-11|13,3|13,10}
 
 ScopeExit finish([&] {
     app.notifyPresetLoaded();
@@ -125,31 +147,50 @@ sampler.rebuildKeySwitchMap();
 
 </div>
 <div class="race-story">
-  <div v-if="$clicks === 1" class="race-step race-assumption">
-    <h3>What I think</h3>
-    <p>Same sequence, less blocking.</p>
+  <div v-if="$clicks >= 1 && $clicks <= 2" class="race-step race-assumption">
+    <h3>What I assumed</h3>
+    <p>needs only the preset</p>
   </div>
 
-  <div v-if="$clicks >= 2" class="race-step race-thread">
-    <h3>Worker</h3>
-    <p>Installs the new tree whenever it finishes.</p>
+  <div v-if="$clicks === 2" class="race-step race-result">
+    <h3>What QA uncovered</h3>
+    <p>reads the installed tree</p>
   </div>
-
-<span v-if="$clicks >= 3" class="race-car-icon" aria-hidden="true">🏎️</span>
 
   <div v-if="$clicks >= 3" class="race-step race-thread">
+    <h3>Worker</h3>
+    <p>installs… whenever</p>
+  </div>
+
+<span v-if="$clicks >= 4" class="race-car-icon" aria-hidden="true">🏎️</span>
+
+  <div v-if="$clicks >= 4" class="race-step race-thread">
     <h3>Main</h3>
-    <p>Immediately rebuilds the map and announces “loaded.”</p>
+    <p>rebuilds right away</p>
   </div>
 
-  <div v-if="$clicks >= 4" class="race-step race-result">
+  <div v-if="$clicks >= 5" class="race-step race-result">
     <h3>What actually happens</h3>
-    <p>No ordering: stale state if main wins; undefined behavior if they overlap.</p>
+    <p>stale state, or UB</p>
   </div>
 </div>
 </div>
 
-<div v-click="5" class="takeaway">Sometimes worker wins. Sometimes main wins. Sometimes they overlap.</div>
+
+<!--
+same code as shipped
+
+[click] the map rebuild…
+
+[click] assumed: preset only · QA: it reads the installed tree
+
+[click] worker installs the tree whenever it's done
+
+[click] main rebuilds + says "loaded" right away 🏎️
+
+[click] main wins → stale map · overlap → UB
+→ sometimes worker wins, sometimes main, sometimes both — the order WAS the dependency
+-->
 
 ---
 
@@ -174,6 +215,15 @@ workers.run([&, preset, mixer] {
 
 <div v-if="$clicks >= 3" class="takeaway">Ordering restored. Main-thread affinity restored. Ship it 🚢</div>
 
+
+<!--
+[click] post back to main
+
+[click] install + rebuild, in order, on main
+
+[click] ordering ✓ affinity ✓ — ship 🚢
+-->
+
 ---
 
 # QA, round three
@@ -186,6 +236,15 @@ workers.run([&, preset, mixer] {
   </ChatMessage>
   <ChatMessage v-click from="Developer">So it is fast now!</ChatMessage>
 </div>
+
+
+<!--
+[click] "all fixed" — getting short
+
+[click] QA: spinner gone instantly, UI stale
+
+[click] "so it's fast now!"
+-->
 
 ---
 
@@ -209,17 +268,17 @@ workers.run(...);
 <div class="race-story">
   <div v-if="$clicks >= 1" class="race-step">
     <h3>Main</h3>
-    <p><code>workers.run()</code> starts work and returns.</p>
+    <p><code>workers.run()</code> → returns</p>
   </div>
 
   <div v-if="$clicks >= 2" class="race-step">
     <h3>Scope exit</h3>
-    <p><code>loadPreset()</code> returns, so completion fires immediately.</p>
+    <p>completion fires</p>
   </div>
 
   <div v-if="$clicks >= 3" class="race-step race-result">
     <h3>Later</h3>
-    <p>The posted callback publishes the preset and completes everything again.</p>
+    <p>completes again</p>
   </div>
 </div>
 </div>
@@ -249,6 +308,23 @@ workers.run([&, preset, mixer] {
 <span v-click="5" style="display: none"></span>
 <span v-click="6" style="display: none"></span>
 
+
+<!--
+oops — the ScopeExit is still armed
+
+[click] run() only schedules → returns immediately
+
+[click] loadPreset() returns → ScopeExit: "loaded", spinner off — too early
+
+[click] later the posted callback installs + completes a 2nd time
+
+[click] RAII would be so nice… can't use it here
+
+[click] so: delete the guard, complete by hand in the callback
+
+[click] happy path ✓ · early exits / exceptions: nobody cleans up
+-->
+
 ---
 
 # QA asks for one nice thing
@@ -265,6 +341,15 @@ workers.run([&, preset, mixer] {
 <div class="chat-stack">
   <ChatMessage v-click from="Developer">Good idea. Let’s add it to the feature request list. 👍</ChatMessage>
 </div>
+
+
+<!--
+[click] QA: let the user locate missing samples
+
+[click] wait for a dialog, then load off main
+
+[click] "feature list" 👍 — deflect
+-->
 
 ---
 
@@ -289,7 +374,18 @@ prepareSamplerTreeAsync(..., [&](auto tree) {
 });
 ```
 
-<div v-click class="takeaway">The product workflow is now three nested completion scopes.</div>
+
+
+<!--
+tries anyway
+
+[click] tree, async
+
+[click] dialog, async (don't point at the return)
+
+[click] samples, async · complete at the bottom
+→ three nested scopes
+-->
 
 ---
 
@@ -329,7 +425,18 @@ void loadMissingSamplesAsync(
 </div>
 </div>
 
-<div v-click="5" class="takeaway premature-completion">We replaced structured programming with a rule every <code>return</code> must remember.</div>
+
+
+<!--
+[click] "one last time. then ship it." — frustrated
+
+[click] QA: content missing → spinner forever
+
+[click] the "production-ready" function
+
+[click] the quiet return 🐛
+→ every return must remember
+-->
 
 ---
 
@@ -346,6 +453,13 @@ notify
 ```
 
 <div v-click class="takeaway">It looks pretty simple! But it's blocking ...</div>
+
+
+<!--
+just the steps, plain
+
+[click] simple — but blocking
+-->
 
 ---
 
@@ -382,7 +496,35 @@ void loadPreset(App& app, Sampler& sampler,
 
 <div class="eyebrow">Coroutine</div>
 
-```cpp {none|none|14-19}
+<div v-if="$clicks < 2">
+
+```cpp
+stdexec::task<void> loadPreset(App& app, Sampler& sampler,
+                Preset preset, bool& finished) {
+    app.setLoading(true);
+    ScopeExit finish([&] {
+        app.notifyPresetLoaded();
+        app.setLoading(false);
+        finished = true;
+    });
+    app.loadMixerState(preset);
+    auto mixer = app.mixerSnapshot();
+    auto tree = co_await prepareSamplerTree(preset, mixer);
+    sampler.installSamplerTree(tree);
+    sampler.rebuildKeySwitchMap();
+
+
+
+
+
+
+}
+```
+
+</div>
+<div v-else>
+
+```cpp {14-19}
 stdexec::task<void> loadPreset(App& app, Sampler& sampler,
                 Preset preset, bool& finished) {
     app.setLoading(true);
@@ -406,7 +548,20 @@ stdexec::task<void> loadPreset(App& app, Sampler& sampler,
 ```
 
 </div>
+
 </div>
+</div>
+
+<span v-click="2" style="display: none"></span>
+
+
+<!--
+the sync version — correct, but blocking
+
+[click] coroutine: same shape, co_await
+
+[click] the new feature: dialog + load, still linear
+-->
 
 ---
 
@@ -450,12 +605,19 @@ sampler.rebuildKeySwitchMap();
 </div>
 
 <div v-click class="payoff-grid">
-  <div><h3>Sequential order</h3><p>The source reads in the order the work happens.</p></div>
-  <div><h3>Visible dependencies</h3><p><code>tree</code>, <code>location</code>, and <code>samples</code> remain ordinary local values.</p></div>
-  <div><h3>RAII</h3><p><code>ScopeExit</code> lives across suspension and runs when the operation exits.</p></div>
+  <div><h3>Sequential order</h3></div>
+  <div><h3>Visible dependencies</h3></div>
+  <div><h3>RAII</h3></div>
 </div>
 
-<div v-click class="takeaway">The function can suspend without surrendering its structure.</div>
+
+
+<!--
+[click] same code — only co_await added
+
+[click] reads in the order it runs · tree / location / samples are plain locals · ScopeExit survives the suspension
+→ suspend without giving up the structure
+-->
 
 ---
 
@@ -491,12 +653,21 @@ stdexec::task<void> loadPreset(...) {
 </div>
 
 <div class="coroutine-keywords">
-  <div v-click="1"><h3><code>stdexec::task</code></h3><p>A coroutine-aware return type. It defines how the operation completes and where its body resumes.</p></div>
-  <div v-click="2"><h3><code>co_await</code></h3><p>May suspend this function until the operation completes - without blocking the thread.</p></div>
-  <div v-click="3"><h3><code>co_return</code></h3><p>Completes the coroutine. Normal scope exit still destroys locals and runs RAII cleanup.</p></div>
+  <div v-click="1"><h3><code>stdexec::task</code></h3><p>how it starts, ends, resumes</p></div>
+  <div v-click="2"><h3><code>co_await</code></h3><p>may suspend</p></div>
+  <div v-click="3"><h3><code>co_return</code></h3><p>completes</p></div>
 </div>
 
-<div v-click="4" class="takeaway">The <code>co_</code> keywords make it a coroutine. The return type tells C++ what kind.</div>
+
+
+<!--
+[click] task: the type decides — starts lazily · hands result/error/cancel to the awaiter · resumes on its scheduler
+
+[click] co_await: may suspend — the thread is NOT blocked
+
+[click] co_return: completes · locals + RAII still run
+→ co_ keywords → coroutine · return type → which kind
+-->
 
 ---
 
@@ -540,12 +711,29 @@ task<void> mySuspendingFunction() {
 </div>
 
 <div class="coro-anatomy" :class="{ focusing: $clicks >= 1 && $clicks <= 5 }">
-  <div v-click="1" :class="{ active: $clicks === 1 }"><h3>Suspension point</h3><p>Every <code>co_await</code> may pause here and return control.</p></div>
-  <div v-click="2" :class="{ active: $clicks >= 2 && $clicks <= 4 }"><h3>Chunk of work</h3><p>Runs uninterrupted from one suspension point to the next.</p></div>
-  <div v-click="5" :class="{ active: $clicks === 5 }"><h3>State in the frame</h3><p>Locals the next chunks need survive the suspension.</p></div>
+  <div v-click="1" :class="{ active: $clicks === 1 }"><h3>Suspension point</h3><p>every <code>co_await</code></p></div>
+  <div v-click="2" :class="{ active: $clicks >= 2 && $clicks <= 4 }"><h3>Chunk of work</h3><p>runs uninterrupted</p></div>
+  <div v-click="5" :class="{ active: $clicks === 5 }"><h3>State in the frame</h3><p>locals survive</p></div>
 </div>
 
-<div v-click="7" class="takeaway">Between two chunks, someone has to call <code>resume()</code>. Who, and on which thread, is next.</div>
+
+
+<!--
+a function that can suspend and resume
+
+[click] each co_await may pause and hand control back
+
+[click] chunk 1: snapshot → up to the first co_await
+
+[click] chunk 2: network data → up to the next co_await
+
+[click] chunk 3: process → send to UI
+
+[click] localData is used after two suspensions → it lives in the frame, not on a stack
+
+[click] one function = 3 chunks, 1 frame
+→ between chunks someone calls resume() — who, on which thread? → next slides
+-->
 
 ---
 clicks: 3
@@ -555,6 +743,17 @@ clicks: 3
 
 <CallStacks scenario="blocking" :step="$clicks" />
 
+
+<!--
+both idle
+
+[click] click → loadPreset() on main
+
+[click] main stuck in get() · no events, no paint
+
+[click] stack back only when worker is done
+-->
+
 ---
 clicks: 8
 ---
@@ -562,6 +761,26 @@ clicks: 8
 # Who is on the stack?
 
 <CallStacks scenario="coroutine" :step="$clicks" />
+
+<!--
+both idle · waiting for a click
+
+[click] spawn → frame on heap, nothing ran yet
+
+[click] executor resumes → body = just a call under resume()
+
+[click] awaitable decides where → handle into worker queue
+
+[click] returns, resume() returns → Main free. **PAUSE** — that's the answer
+
+[click] same frame, other stack · Main paints, spinner spins
+
+[click] co_await → Main's queue · worker idle again
+
+[click] Main drains → resumes
+
+[click] frame gone · nobody waited
+-->
 
 ---
 clicks: 3
@@ -571,6 +790,17 @@ clicks: 3
 
 <CallStacks scenario="callbacks" :step="$clicks" :slots="6" />
 
+
+<!--
+async ≠ another thread · values arrive later, any order
+
+[click] layout first → check → return
+
+[click] rate → both there → create, inside host callback
+
+[click] decision spread: 3 functions, 2 members
+-->
+
 ---
 clicks: 4
 ---
@@ -578,6 +808,19 @@ clicks: 4
 # The same logic, in one place
 
 <CallStacks scenario="event" :step="$clicks" code-size="0.62rem" :slots="6" />
+
+
+<!--
+spawned in initialise → suspends at once
+
+[click] no executor, no queue · main paints
+
+[click] layout → setValue() returns
+
+[click] rate → resumed inline, inside the callback
+
+[click] parks again · one function, top to bottom
+-->
 
 ---
 clicks: 3
@@ -587,13 +830,29 @@ clicks: 3
 
 <CallStacks scenario="polled" :step="$clicks" />
 
+
+<!--
+key click → coroutine starts in mouseDown()
+
+[click] mouseDown returns · handle waits · nobody wakes audio
+
+[click] next block polls → resumes, gets the block
+
+[click] note plays · real-time safe!
+-->
+
 ---
 
 # Same top, different bottom
 
 <StackShapes />
 
-<div v-click class="takeaway">The top is always <code>resume()</code> calling the body. Only who calls <code>resume()</code> changes.</div>
+
+
+<!--
+top two rows: always body + resume()
+→ only the caller differs
+-->
 
 ---
 clicks: 4
@@ -602,6 +861,19 @@ clicks: 4
 # Zoom out: chunks on threads
 
 <ThreadTimeline name="loadPreset" :step="$clicks" />
+
+
+<!--
+blocking: main stuck in get()
+
+[click] chunk 1 → hop to worker
+
+[click] main is free: paint, mouse
+
+[click] 2nd coroutine → audio, next block
+
+[click] back on main · nobody waited
+-->
 
 ---
 
