@@ -8,6 +8,7 @@ const props = withDefaults(defineProps<{
   data?: CallStackScenario
   step?: number
   slots?: number
+  codeSize?: string
 }>(), {
   scenario: 'coroutine',
   step: 0,
@@ -18,6 +19,7 @@ const current = computed(() => props.data ?? scenarios[props.scenario])
 const steps = computed(() => current.value.steps)
 const index = computed(() => Math.min(Math.max(props.step, 0), steps.value.length - 1))
 const active = computed(() => steps.value[index.value])
+const highlighted = computed(() => [active.value.line ?? []].flat())
 
 const kinds: FrameKind[] = ['wait', 'block', 'loop', 'executor', 'resume', 'body', 'call']
 
@@ -64,9 +66,9 @@ watchEffect(async () => {
 <template>
   <div class="callstacks">
     <div class="cs-top">
-      <pre class="cs-code"><code><span
+      <pre class="cs-code" :style="codeSize ? { fontSize: codeSize + ' !important' } : undefined"><code><span
         v-for="(line, i) in lines" :key="i"
-        class="cs-line" :class="{ on: active.line === i + 1, dim: active.line && active.line !== i + 1 }"
+        class="cs-line" :class="{ on: highlighted.includes(i + 1), dim: highlighted.length && !highlighted.includes(i + 1) }"
         ><span v-for="(t, j) in line" :key="j" :style="{ color: t.color }">{{ t.content }}</span>{{ '\n' }}</span></code></pre>
       <div class="cs-caption">
         <span class="cs-step">{{ index + 1 }} / {{ steps.length }}</span>
