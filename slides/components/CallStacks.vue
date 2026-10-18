@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watchEffect } from 'vue'
 import { scenarios, type CallStackScenario, type FrameKind } from './callStackScenarios'
+import { highlightLines, type Token } from './callStackHighlight'
 
 const props = withDefaults(defineProps<{
   scenario?: string
@@ -51,22 +52,22 @@ function statusOf(thread: string) {
 
 const [left, right] = current.value.threads
 
-function highlight(line: string) {
-  const escaped = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  return escaped
-    .replace(/\b(co_await|co_return|return|auto|void|for|int|override)\b/g, '<span class="kw">$1</span>')
-    .replace(/\b(task|Preset|File)\b/g, '<span class="ty">$1</span>')
-    .replace(/\b([A-Za-z_]\w*)(?=\()/g, '<span class="fn">$1</span>')
-}
+// Same Shiki theme as setup/shiki.ts; plain text until the highlighter loads.
+const lines = ref<Token[][]>([])
+watchEffect(async () => {
+  const code = current.value.code
+  lines.value = code.map(line => [{ content: line }])
+  lines.value = await highlightLines(code)
+})
 </script>
 
 <template>
   <div class="callstacks">
     <div class="cs-top">
       <pre class="cs-code"><code><span
-        v-for="(line, i) in current.code" :key="i"
+        v-for="(line, i) in lines" :key="i"
         class="cs-line" :class="{ on: active.line === i + 1, dim: active.line && active.line !== i + 1 }"
-        v-html="highlight(line) + '\n'" /></code></pre>
+        ><span v-for="(t, j) in line" :key="j" :style="{ color: t.color }">{{ t.content }}</span>{{ '\n' }}</span></code></pre>
       <div class="cs-caption">
         <span class="cs-step">{{ index + 1 }} / {{ steps.length }}</span>
         <p>{{ active.caption }}</p>
@@ -161,10 +162,6 @@ function highlight(line: string) {
 .cs-line.dim {
   opacity: 0.45;
 }
-
-.cs-code :deep(.kw) { color: #c792ea; }
-.cs-code :deep(.ty) { color: var(--cs-teal); }
-.cs-code :deep(.fn) { color: #f0d39d; }
 
 .cs-caption {
   align-self: center;
