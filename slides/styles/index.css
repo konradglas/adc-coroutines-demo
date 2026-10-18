@@ -2598,3 +2598,39 @@ body,
   border-radius: 0.6rem;
   padding: 0.4rem 1.1rem;
 }
+
+.coro-anatomy {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.8rem;
+  margin-top: 1.2rem;
+}
+
+.coro-anatomy > div {
+  background: #191919;
+  border: 1px solid var(--slide-line);
+  border-radius: 0.6rem;
+  padding: 0.8rem 1rem;
+  transition: border-color 0.2s, opacity 0.2s;
+}
+
+.coro-anatomy.focusing > div:not(.active) {
+  opacity: 0.55;
+}
+
+.coro-anatomy > div.active {
+  border-color: #8a8a8a;
+}
+
+.coro-anatomy h3 {
+  color: var(--slide-muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  margin: 0 0 0.4rem;
+  text-transform: uppercase;
+}
+
+.coro-anatomy p {
+  font-size: 0.95rem;
+  margin: 0;
+}

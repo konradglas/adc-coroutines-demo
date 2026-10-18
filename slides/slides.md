@@ -605,6 +605,51 @@ No more "do we have everything yet?" checks scattered across the setters.
 
 ---
 
+# How do coroutines work conceptually
+
+<v-clicks>
+
+- Coroutines are functions that can be suspended and resumed.
+
+- Each suspension point splits a coroutine into "chunks of work".
+
+- State the chunks need is "tucked away" inside the coroutine frame.
+
+- Each chunk is usually run by an "Executor", for example a worker thread or the main thread. Or by no executor at all: resumed directly.
+
+- The awaitable or task type decides which one.
+
+- The Executor runs that chunk until the next suspension point.
+
+</v-clicks>
+
+---
+
+<p class="muted">Coroutines are functions that can be suspended and resumed.</p>
+
+```cpp {all|5,8|1-3,5|4-5,7-8|7-10|2,8|all}
+task<void> mySuspendingFunction() {
+  auto localData =
+    createSomeStateSnapshot();
+  auto networkData =
+    co_await gatherSomeDataFromTheInternet(localData.url);
+
+  auto processedData =
+    co_await processData(networkData, localData.settings);
+  sendToUI(processedData);
+}
+```
+
+<div class="coro-anatomy" :class="{ focusing: $clicks >= 1 && $clicks <= 5 }">
+  <div v-click="1" :class="{ active: $clicks === 1 }"><h3>Suspension point</h3><p>Every <code>co_await</code> may pause here and return control.</p></div>
+  <div v-click="2" :class="{ active: $clicks >= 2 && $clicks <= 4 }"><h3>Chunk of work</h3><p>Runs uninterrupted from one suspension point to the next.</p></div>
+  <div v-click="5" :class="{ active: $clicks === 5 }"><h3>State in the frame</h3><p>Locals the next chunks need survive the suspension.</p></div>
+</div>
+
+---
+
+---
+
 # Three types, three jobs
 
 ```cpp {none|1|1|2}
