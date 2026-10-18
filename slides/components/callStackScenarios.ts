@@ -173,6 +173,57 @@ export const scenarios: Record<string, CallStackScenario> = {
     ],
   },
 
+  callbacks: {
+    threads: ['Host thread'],
+    heapEmpty: 'none: _sampleRate and _channelLayout are members',
+    code: [
+      'void createSomeProcessor() {',
+      '  if (!_sampleRate || !_channelLayout) return;',
+      '  createProcessor(*_sampleRate, *_channelLayout);',
+      '}',
+      'void setChannelLayout(auto layout) override {',
+      '  _channelLayout = layout; createSomeProcessor();',
+      '}',
+      'void setSampleRate(int rate) override {',
+      '  _sampleRate = rate; createSomeProcessor();',
+      '}',
+    ],
+    steps: [
+      {
+        caption: 'Same host, callback style. Two values arrive in any order.',
+        threads: { 'Host thread': ['wait|Host::waitForEvents()', 'loop|Host::run()'] },
+        heap: [],
+      },
+      {
+        line: 2,
+        caption: 'The layout arrives first. createSomeProcessor() checks: no sample rate yet, return.',
+        threads: {
+          'Host thread': ['call|createSomeProcessor()', 'call|Plugin::setChannelLayout()', 'loop|Host::configureBuses()', 'loop|Host::run()'],
+        },
+        heap: [],
+      },
+      {
+        line: 3,
+        caption: 'The sample rate arrives. Both are there, so the processor is created inside the host’s callback.',
+        threads: {
+          'Host thread': [
+            'call|createProcessor()',
+            'call|createSomeProcessor()',
+            'call|Plugin::setSampleRate()',
+            'loop|Host::prepareToPlay()',
+            'loop|Host::run()',
+          ],
+        },
+        heap: [],
+      },
+      {
+        caption: 'Async doesn’t mean “run on another thread”. It means the operation can start now and complete later.',
+        threads: { 'Host thread': ['wait|Host::waitForEvents()', 'loop|Host::run()'] },
+        heap: [],
+      },
+    ],
+  },
+
   event: {
     threads: ['Host thread'],
     code: [
