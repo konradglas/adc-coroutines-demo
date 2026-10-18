@@ -72,7 +72,7 @@ watchEffect(async () => {
         ><span v-for="(t, j) in line" :key="j" :style="{ color: t.color }">{{ t.content }}</span>{{ '\n' }}</span></code></pre>
       <div class="cs-caption">
         <span class="cs-step">{{ index + 1 }} / {{ steps.length }}</span>
-        <p>{{ active.caption }}</p>
+        <p :class="{ label: active.label }">{{ active.label ?? active.caption }}</p>
       </div>
     </div>
 
@@ -167,6 +167,12 @@ watchEffect(async () => {
 
 .cs-caption {
   align-self: center;
+}
+
+.cs-caption p.label {
+  font-size: 1.45rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .cs-caption p {

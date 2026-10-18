@@ -12,7 +12,7 @@ const props = withDefaults(defineProps<{
 
 const timeline = computed(() => timelines[props.name])
 const caption = computed(() => {
-  const captions = timeline.value.captions
+  const captions = timeline.value.labels ?? timeline.value.captions
   return captions[Math.min(Math.max(props.step, 0), captions.length - 1)]
 })
 
@@ -96,7 +96,7 @@ const colors: Record<BlockKind, string> = {
     </div>
 
     <div class="tt-footer">
-      <p class="tt-caption">{{ caption }}</p>
+      <p class="tt-caption" :class="{ label: timeline.labels }">{{ caption }}</p>
       <div class="tt-legend">
         <span v-for="(label, kind) in timeline.legend" :key="kind">
           <i :class="kind" />{{ label }}
@@ -204,6 +204,13 @@ const colors: Record<BlockKind, string> = {
   line-height: 1.4;
   margin: 0;
   min-height: 2.8em;
+}
+
+.tt-caption.label {
+  font-size: 1.45rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  min-height: 0;
 }
 
 .tt-legend {

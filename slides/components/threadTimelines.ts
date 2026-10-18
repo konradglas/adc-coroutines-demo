@@ -30,6 +30,8 @@ export interface TimelinePanel {
 export interface Timeline {
   legend: Partial<Record<BlockKind, string>>
   captions: string[]
+  // Short on-screen text per step; the captions then live in the slide notes.
+  labels?: string[]
   panels: TimelinePanel[]
 }
 
@@ -40,6 +42,13 @@ const audioBlocks = (at = 0) => [0.2, 1.2, 2.2, 3.2, 4.2, 5.2].map(from => ({
 export const timelines: Record<string, Timeline> = {
   loadPreset: {
     legend: { a: 'loadPreset', b: 'onKeyboardNote', other: 'other work', blocked: 'blocked' },
+    labels: [
+      'Blocking: Main is stuck',
+      'Chunk 1 → hop to the worker',
+      'Main is free',
+      'A second coroutine → audio',
+      'Back on Main · nobody waited',
+    ],
     captions: [
       'Blocking: Main sits in get() until the worker is done. Nothing else runs on it.',
       'Suspending: chunk 1 runs on Main, then the continuation hops to a worker…',

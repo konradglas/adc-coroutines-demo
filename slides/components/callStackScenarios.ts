@@ -21,6 +21,8 @@ export interface CoroutineFrame {
 export interface CallStackStep {
   line?: number | number[];
   caption: string;
+  // Short on-screen text; the full caption then lives in the slide notes.
+  label?: string;
   threads: Record<string, string[]>;
   status?: Record<string, string>;
   heap: CoroutineFrame[];
@@ -66,12 +68,14 @@ export const scenarios: Record<string, CallStackScenario> = {
     ],
     steps: [
       {
+        label: "Two idle loops",
         caption: "Two threads, both idle in their loops.",
         threads: { Main: mainIdle, Worker: workerIdle },
         heap: [],
       },
       {
         line: 2,
+        label: "Click → loadPreset()",
         caption: "A click calls loadPreset() on Main.",
         threads: {
           Main: ["call|loadPreset()", "call|onLoadClicked()", ...mainLoop],
@@ -81,6 +85,7 @@ export const scenarios: Record<string, CallStackScenario> = {
       },
       {
         line: 5,
+        label: "Main is stuck in get()",
         caption:
           "The worker builds the tree. Main is parked in get(): no events, no painting.",
         threads: {
@@ -96,6 +101,7 @@ export const scenarios: Record<string, CallStackScenario> = {
       },
       {
         line: 6,
+        label: "Main gets its stack back",
         caption: "Only when the worker is done does Main get its stack back.",
         threads: {
           Main: ["call|loadPreset()", "call|onLoadClicked()", ...mainLoop],
@@ -120,11 +126,13 @@ export const scenarios: Record<string, CallStackScenario> = {
     ],
     steps: [
       {
+        label: "Two idle loops",
         caption: "Two threads, both idle in their loops.",
         threads: { Main: mainIdle, Worker: workerIdle },
         heap: [],
       },
       {
+        label: "Spawned, not started",
         caption:
           "A click spawns loadPreset(). The frame is created, nothing runs yet.",
         threads: {
@@ -146,6 +154,7 @@ export const scenarios: Record<string, CallStackScenario> = {
       },
       {
         line: 2,
+        label: "Resumed by Main’s executor",
         caption:
           "Main’s executor resumes it. The body is just a call under resume().",
         threads: {
@@ -168,6 +177,7 @@ export const scenarios: Record<string, CallStackScenario> = {
       },
       {
         line: 3,
+        label: "The awaitable picks the queue",
         caption:
           "The awaitable decides where to continue: await_suspend() hands the handle to the worker queue…",
         threads: {
@@ -191,6 +201,7 @@ export const scenarios: Record<string, CallStackScenario> = {
       },
       {
         line: 3,
+        label: "Main is back in its loop",
         caption: "…and returns. So does resume(). Main is back in its loop.",
         threads: { Main: mainIdle, Worker: workerIdle },
         heap: [
@@ -204,6 +215,7 @@ export const scenarios: Record<string, CallStackScenario> = {
       },
       {
         line: 4,
+        label: "Same frame, different stack",
         caption:
           "The worker picks it up. Same frame, different stack. Main is free to paint.",
         threads: {
@@ -227,6 +239,7 @@ export const scenarios: Record<string, CallStackScenario> = {
       },
       {
         line: 5,
+        label: "Posted back to Main",
         caption:
           "co_await again: the handle is posted to Main, and the worker goes back to waiting.",
         threads: {
@@ -244,6 +257,7 @@ export const scenarios: Record<string, CallStackScenario> = {
       },
       {
         line: 6,
+        label: "Main resumes it",
         caption: "Main’s loop drains its queue and resumes the frame.",
         threads: {
           Main: [
@@ -264,6 +278,7 @@ export const scenarios: Record<string, CallStackScenario> = {
         ],
       },
       {
+        label: "Nobody waited",
         caption:
           "Done. The frame is destroyed. Neither thread ever waited for the other.",
         threads: { Main: mainIdle, Worker: workerIdle },
@@ -289,12 +304,14 @@ export const scenarios: Record<string, CallStackScenario> = {
     ],
     steps: [
       {
+        label: "Values arrive later, in any order",
         caption: "Async doesn’t mean “run on another thread”: these two values just arrive later, in any order.",
         threads: { Main: mainIdle },
         heap: [],
       },
       {
         line: 2,
+        label: "Layout first → return",
         caption:
           "The layout arrives first. createSomeProcessor() checks: no sample rate yet, return.",
         threads: {
@@ -310,6 +327,7 @@ export const scenarios: Record<string, CallStackScenario> = {
       },
       {
         line: 3,
+        label: "Rate arrives → create",
         caption:
           "The sample rate arrives. Both are there, so the processor is created on Main, inside the host’s callback.",
         threads: {
@@ -325,6 +343,7 @@ export const scenarios: Record<string, CallStackScenario> = {
         heap: [],
       },
       {
+        label: "Spread over three functions",
         caption:
           "The decision is spread over three functions and two members. Nothing in the code says “wait for both, then create”.",
         threads: { Main: mainIdle },
@@ -355,6 +374,7 @@ export const scenarios: Record<string, CallStackScenario> = {
     steps: [
       {
         line: 3,
+        label: "Started, suspended at once",
         caption:
           "Started while the plugin initialises. Neither value is known yet, so it suspends right away.",
         threads: {
@@ -375,6 +395,7 @@ export const scenarios: Record<string, CallStackScenario> = {
         ],
       },
       {
+        label: "Main keeps painting",
         caption:
           "Back to the host. No executor, no queue: just a frame waiting for a value. Main keeps painting.",
         threads: { Main: ["call|Editor::paint()", ...mainLoop.slice(0, 2)] },
@@ -388,6 +409,7 @@ export const scenarios: Record<string, CallStackScenario> = {
         ],
       },
       {
+        label: "Layout set → still waiting",
         caption:
           "The host sets the channel layout. when_all still needs the sample rate, so setValue() just returns.",
         line: 11,
@@ -410,6 +432,7 @@ export const scenarios: Record<string, CallStackScenario> = {
       },
       {
         line: [5, 14],
+        label: "Rate set → resumed inline",
         caption:
           "The sample rate completes when_all. setValue() resumes the frame inline, on Main, inside the host’s callback.",
         threads: {
@@ -433,6 +456,7 @@ export const scenarios: Record<string, CallStackScenario> = {
       },
       {
         line: 6,
+        label: "One function, top to bottom",
         caption:
           "Next co_await: the frame parks and the callback returns. The whole decision reads top to bottom, in one function.",
         threads: { Main: mainIdle.slice(0, 2) },
@@ -458,6 +482,7 @@ export const scenarios: Record<string, CallStackScenario> = {
     steps: [
       {
         line: 2,
+        label: "Key click → co_await",
         caption:
           "A key on the on-screen keyboard is clicked. The coroutine starts inside mouseDown() and hits co_await.",
         threads: {
@@ -486,6 +511,7 @@ export const scenarios: Record<string, CallStackScenario> = {
       },
       {
         line: 2,
+        label: "Waiting for the next block",
         caption:
           "mouseDown() returns right away. The handle waits in the audio queue, and nobody wakes the audio thread.",
         threads: {
@@ -510,6 +536,7 @@ export const scenarios: Record<string, CallStackScenario> = {
       },
       {
         line: 3,
+        label: "The next block resumes it",
         caption:
           "The next block polls the queue first: processBlock() resumes the frame and co_await hands it that block.",
         threads: {
@@ -533,6 +560,7 @@ export const scenarios: Record<string, CallStackScenario> = {
         ],
       },
       {
+        label: "Note plays · stay real-time safe",
         caption:
           "The note plays in this very block. The catch: whatever resumes here must be real-time safe.",
         threads: {
