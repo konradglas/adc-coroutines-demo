@@ -517,6 +517,22 @@ stdexec::task<void> loadPreset(...) {
 </div>
 
 ---
+clicks: 3
+---
+
+# Waiting the old way
+
+<CallStacks scenario="blocking" :step="$clicks" />
+
+---
+clicks: 8
+---
+
+# Who is on the stack?
+
+<CallStacks scenario="coroutine" :step="$clicks" />
+
+---
 
 # Three types, three jobs
 
