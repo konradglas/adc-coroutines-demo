@@ -254,8 +254,9 @@ export const scenarios: Record<string, CallStackScenario> = {
         heap: [{ name: 'createSomeProcessor', state: 'suspended', note: 'waiting for both values' }],
       },
       {
-        caption: 'Back to the host. No executor, no queue: just a frame waiting for a value.',
-        threads: { Main: mainIdle },
+        caption: 'Back to the host. No executor, no queue: just a frame waiting for a value. Main keeps painting.',
+        threads: { Main: ['call|Editor::paint()', ...mainLoop] },
+        status: { Main: 'free · painting' },
         heap: [{ name: 'createSomeProcessor', state: 'suspended', note: 'waiting for both values' }],
       },
       {
