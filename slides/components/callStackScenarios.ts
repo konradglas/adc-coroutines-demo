@@ -21,7 +21,7 @@ export interface CallStackStep {
 
 export interface CallStackScenario {
   code: string[]
-  threads: [string, string]
+  threads: [string] | [string, string]
   heapEmpty?: string
   steps: CallStackStep[]
 }
@@ -169,6 +169,136 @@ export const scenarios: Record<string, CallStackScenario> = {
         caption: 'Done. The frame is destroyed. Neither thread ever waited for the other.',
         threads: { Main: mainIdle, Worker: workerIdle },
         heap: [{ name: 'loadPreset', state: 'done', note: 'destroyed' }],
+      },
+    ],
+  },
+
+  event: {
+    threads: ['Host thread'],
+    code: [
+      'task<void> createSomeProcessor() {',
+      '  for (;;) {',
+      '    auto [rate, layout] = co_await when_all(',
+      '        _sampleRate.value(), _channelLayout.value());',
+      '    createProcessor(rate, layout);',
+      '    co_await when_any(_sampleRate.changed(),',
+      '                      _channelLayout.changed());',
+      '  }',
+      '}',
+    ],
+    steps: [
+      {
+        line: 3,
+        caption: 'Started while the plugin initialises. Neither value is known yet, so it suspends right away.',
+        threads: {
+          'Host thread': [
+            'body|createSomeProcessor() (resume)',
+            'resume|handle.resume()',
+            'call|scope.spawn(createSomeProcessor())',
+            'call|Plugin::initialise()',
+            'loop|Host::loadPlugin()',
+            'loop|Host::run()',
+          ],
+        },
+        heap: [{ name: 'createSomeProcessor', state: 'suspended', note: 'waiting for both values' }],
+      },
+      {
+        caption: 'Back to the host. No executor, no queue: just a frame waiting for a value.',
+        threads: { 'Host thread': ['wait|Host::waitForEvents()', 'loop|Host::run()'] },
+        heap: [{ name: 'createSomeProcessor', state: 'suspended', note: 'waiting for both values' }],
+      },
+      {
+        caption: 'The host sets the channel layout. when_all still needs the sample rate, so setValue() just returns.',
+        threads: {
+          'Host thread': [
+            'call|AwaitableValue::setValue()',
+            'call|Plugin::setChannelLayout()',
+            'loop|Host::configureBuses()',
+            'loop|Host::run()',
+          ],
+        },
+        heap: [{ name: 'createSomeProcessor', state: 'suspended', note: 'waiting for sample rate', locals: ['layout'] }],
+      },
+      {
+        line: 5,
+        caption: 'The sample rate completes when_all. setValue() resumes the frame inline, on the host’s thread, inside its callback.',
+        threads: {
+          'Host thread': [
+            'call|createProcessor()',
+            'body|createSomeProcessor() (resume)',
+            'resume|handle.resume()',
+            'call|AwaitableValue::setValue()',
+            'call|Plugin::setSampleRate()',
+            'loop|Host::prepareToPlay()',
+            'loop|Host::run()',
+          ],
+        },
+        heap: [{ name: 'createSomeProcessor', state: 'running', note: 'inside setSampleRate()', locals: ['rate', 'layout'] }],
+      },
+      {
+        line: 6,
+        caption: 'Next co_await: the frame parks, setValue() returns, and the host’s callback finishes.',
+        threads: { 'Host thread': ['wait|Host::waitForEvents()', 'loop|Host::run()'] },
+        heap: [{ name: 'createSomeProcessor', state: 'suspended', note: 'waiting for a change' }],
+      },
+    ],
+  },
+
+  polled: {
+    threads: ['Audio thread', 'Worker'],
+    code: [
+      'task<void> swapImpulseResponse(File file) {',
+      '  co_await resumeOn(workers);',
+      '  auto ir = loadAndResample(file);',
+      '  co_await resumeOn(audioThread);',
+      '  convolver.swap(ir);',
+      '}',
+    ],
+    steps: [
+      {
+        line: 3,
+        caption: 'The heavy part runs on a worker. The audio thread keeps rendering blocks.',
+        threads: {
+          'Audio thread': ['call|Convolver::process()', 'call|Plugin::processBlock()', 'loop|Host::audioCallback()', 'loop|AudioDriver::run()'],
+          Worker: ['call|loadAndResample()', 'body|swapImpulseResponse() (resume)', 'resume|handle.resume()', ...workerLoop],
+        },
+        status: { 'Audio thread': 'rendering' },
+        heap: [{ name: 'swapImpulseResponse', state: 'running', note: 'on Worker', locals: ['file'] }],
+      },
+      {
+        line: 4,
+        caption: 'co_await pushes the handle into the audio executor’s queue. Nobody gets woken up.',
+        threads: {
+          'Audio thread': ['wait|waitForNextBlock()', 'loop|AudioDriver::run()'],
+          Worker: workerIdle,
+        },
+        status: { 'Audio thread': 'between blocks' },
+        heap: [{ name: 'swapImpulseResponse', state: 'suspended', note: 'in audio queue', locals: ['ir'] }],
+      },
+      {
+        line: 5,
+        caption: 'The next block arrives. processBlock() polls the queue first and resumes the frame.',
+        threads: {
+          'Audio thread': [
+            'body|swapImpulseResponse() (resume)',
+            'resume|handle.resume()',
+            'executor|AudioExecutor::runPending()',
+            'call|Plugin::processBlock()',
+            'loop|Host::audioCallback()',
+            'loop|AudioDriver::run()',
+          ],
+          Worker: workerIdle,
+        },
+        heap: [{ name: 'swapImpulseResponse', state: 'running', note: 'on Audio thread', locals: ['ir'] }],
+      },
+      {
+        caption: 'Then it renders with the new IR. The catch: everything resumed here must be real-time safe.',
+        threads: {
+          'Audio thread': ['call|Convolver::process()', 'call|Plugin::processBlock()', 'loop|Host::audioCallback()', 'loop|AudioDriver::run()'],
+          Worker: workerIdle,
+        },
+        status: { 'Audio thread': 'rendering' },
+        heap: [{ name: 'swapImpulseResponse', state: 'done', note: 'destroyed' }],
       },
     ],
   },

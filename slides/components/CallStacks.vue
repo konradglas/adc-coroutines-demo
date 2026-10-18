@@ -54,8 +54,8 @@ const [left, right] = current.value.threads
 function highlight(line: string) {
   const escaped = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   return escaped
-    .replace(/\b(co_await|co_return|return|auto|void)\b/g, '<span class="kw">$1</span>')
-    .replace(/\b(task|Preset)\b/g, '<span class="ty">$1</span>')
+    .replace(/\b(co_await|co_return|return|auto|void|for|int|override)\b/g, '<span class="kw">$1</span>')
+    .replace(/\b(task|Preset|File)\b/g, '<span class="ty">$1</span>')
     .replace(/\b([A-Za-z_]\w*)(?=\()/g, '<span class="fn">$1</span>')
 }
 </script>
@@ -73,7 +73,7 @@ function highlight(line: string) {
       </div>
     </div>
 
-    <div class="cs-columns">
+    <div class="cs-columns" :class="{ single: !right }">
       <div v-for="thread in [left]" :key="thread" class="cs-thread">
         <div class="cs-head">
           <span>{{ thread }} stack</span>
@@ -101,7 +101,7 @@ function highlight(line: string) {
         </div>
       </div>
 
-      <div v-for="thread in [right]" :key="thread" class="cs-thread">
+      <div v-for="thread in (right ? [right] : [])" :key="thread" class="cs-thread">
         <div class="cs-head">
           <span>{{ thread }} stack</span>
           <span class="cs-status" :class="statusOf(thread).cls">{{ statusOf(thread).label }}</span>
@@ -186,6 +186,10 @@ function highlight(line: string) {
   display: grid;
   gap: 0.9rem;
   grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 1fr);
+}
+
+.cs-columns.single {
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
 }
 
 .cs-head {
