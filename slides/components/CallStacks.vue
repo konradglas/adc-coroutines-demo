@@ -261,6 +261,7 @@ watchEffect(async () => {
   display: flex;
   flex: 1;
   flex-direction: column;
+  gap: 0.5rem;
   justify-content: center;
   padding: 0.6rem;
 }
