@@ -678,8 +678,8 @@ stdexec::task<void> loadPreset(...) {
 
 - What is an asynchronous operation
 - Why are coroutines non-blocking
-- How do I get from `void` to `task<void>`
 - What thread am I on after the `co_await`
+- How do I get from `void` to `task<void>`
 - How do I cancel obsolete work
 - How do I safely tear down the whole thing
 - Which libraries are out there to get my hands dirty
@@ -873,6 +873,220 @@ blocking: main stuck in get()
 [click] 2nd coroutine → audio, next block
 
 [click] back on main · nobody waited
+-->
+
+---
+clicks: 5
+---
+
+# Which thread am I on?
+
+<ThreadBadges name="tracking" :step="$clicks" />
+
+<!--
+threads: I always knew where I am · now every co_await may hand me to someone else
+
+so I track it myself, line by line
+
+[click] start: Main
+
+[click] resumeOn(workers) → worker from here on
+
+[click] resumeOn(mainThread) → back
+
+[click] the file dialog… who resumes me? no idea
+
+[click] and everything after it · even where finish runs · I've become the scheduler
+-->
+
+---
+clicks: 4
+---
+
+# Forgot the hop back
+
+<CallStacks scenario="forgotHop" :step="$clicks" />
+
+<!--
+same code, RAII style · minus the way back
+
+[click] worker builds the tree · fine so far
+
+[click] install() on the worker · Main paints the sampler → race
+
+[click] scope ends on the worker → finish runs there · setLoading(false) off main · no line shows it
+
+[click] frame destroyed on the worker
+-->
+
+---
+clicks: 1
+---
+
+# What if the task knew where it belongs?
+
+<ThreadBadges name="mainActor" :step="$clicks" />
+
+<!--
+same workflow · return type MainActorTask · the resumeOn lines are gone
+
+all those question marks…
+
+[click] every line: Main · finish too · the type remembers it for me · enjoy this one
+-->
+
+---
+clicks: 4
+---
+
+# The line disappeared
+
+<CallStacks scenario="affine" :step="$clicks" />
+
+<!--
+how does it get home without the line?
+
+[click] the child hops to the worker by itself · parent waits
+
+[click] heavy work on the worker · Main paints
+
+[click] child done → MainActorTask posts the parent home (ResumeOnMain)
+
+[click] back on Main · same stacks as "Who is on the stack?" · no resumeOn(mainThread)
+-->
+
+---
+
+# Two kinds of tasks
+
+<div class="code-compare task-kind-question" :class="{ 'show-task-kinds': $clicks >= 1 }">
+<div>
+
+<div class="eyebrow">Background work</div>
+
+```cpp
+Task<PreparedSamplerTree> prepareSamplerTree(...) {
+    co_await ScheduleOn{workers};
+    co_return buildExpensiveSamplerTree(...);
+}
+```
+
+</div>
+<div>
+
+<div class="eyebrow">Plugin workflow</div>
+
+```cpp
+MainActorTask<void> loadPreset(...) {
+    auto tree = co_await prepareSamplerTree(...);
+    sampler.installSamplerTree(std::move(tree));
+}
+```
+
+</div>
+</div>
+
+<div v-click="1" class="task-kind-answer">
+  <code>Task&lt;T&gt;</code>
+  <span>versus</span>
+  <code>MainActorTask</code>
+</div>
+
+
+
+<!--
+background work: `Task<T>` · hops to the workers itself
+
+plugin workflow: MainActorTask · lives on main
+
+[click] same co_await syntax · the return type says where it continues
+-->
+
+---
+
+# Why give the plugin workflow a home?
+
+<div class="code-compare main-actor-motivation">
+<div>
+
+```cpp
+MainActorTask<void> loadPreset(...) {
+    app.setLoading(true);
+    app.loadMixerState(preset);
+
+    auto tree = co_await
+        prepareSamplerTree(...);
+
+    sampler.installSamplerTree(tree);
+    app.notifyPresetLoaded();
+}
+```
+
+</div>
+<div class="motivation-stack">
+  <div v-click="1">
+    <h3>Where the plugin lives</h3>
+    <p>host callbacks · editor · plugin state</p>
+  </div>
+  <div v-click="2">
+    <h3>Only the heavy part leaves</h3>
+    <p><code>prepareSamplerTree()</code> → worker</p>
+  </div>
+</div>
+</div>
+
+
+
+<!--
+why main as the default home?
+
+[click] the plugin already lives there: host callbacks, editor, most state
+
+[click] only the heavy part has to leave → orchestration stays home, heavy work goes out explicitly
+-->
+
+---
+
+# The cozy part: main-owned state is serialized
+
+<div class="code-compare actor-safety">
+<div class="actor-region-code" :class="{
+  'show-first-region': $clicks === 1,
+  'show-suspension-boundary': $clicks === 2,
+  'show-second-region': $clicks >= 3,
+}">
+
+```cpp
+MainActorTask<void> loadPreset(...) {
+    app.setLoading(true);
+    auto mixer = app.mixerSnapshot();
+
+    auto tree = co_await prepareSamplerTree(...);
+
+    sampler.installSamplerTree(tree);
+    sampler.rebuildKeySwitchMap();
+    app.setLoading(false);
+}
+```
+
+</div>
+<div class="actor-safety-notes">
+  <div v-click="1" class="safe-region-note"><strong>Nothing interleaves</strong></div>
+  <div v-click="2" class="suspension-note"><strong><code>co_await</code>: others may run</strong></div>
+  <div v-click="3" class="safe-region-note"><strong>No locks needed</strong></div>
+</div>
+</div>
+
+
+
+<!--
+bonus of one home thread
+
+[click] up to the co_await: nothing else on main runs in between
+
+[click] the co_await is the only place others get in
+
+[click] after it: again uninterrupted · main-owned state needs no locks
 -->
 
 ---
@@ -1081,7 +1295,7 @@ struct ScheduleOn {
 <div class="eyebrow">Returned by a coroutine</div>
 
 ```cpp
-MainActorTask loadPreset() {
+MainActorTask<void> loadPreset() {
     // ...
     co_return;
 }
@@ -1353,80 +1567,6 @@ Task<bool> loadSamplesAsync() {
 
 ---
 
-# Did anyone spot the other difference?
-
-<div class="code-compare task-kind-question" :class="{ 'show-task-kinds': $clicks >= 1 }">
-<div>
-
-<div class="eyebrow">Background work</div>
-
-```cpp
-Task<PreparedSamplerTree> prepareSamplerTree(...) {
-    co_await ScheduleOn{workers};
-    co_return buildExpensiveSamplerTree(...);
-}
-```
-
-</div>
-<div>
-
-<div class="eyebrow">Plugin workflow</div>
-
-```cpp
-MainActorTask loadPreset(...) {
-    auto tree = co_await prepareSamplerTree(...);
-    sampler.installSamplerTree(std::move(tree));
-}
-```
-
-</div>
-</div>
-
-<div v-click="1" class="task-kind-answer">
-  <code>Task&lt;T&gt;</code>
-  <span>versus</span>
-  <code>MainActorTask</code>
-</div>
-
-<div v-click="2" class="takeaway">They carry different execution contracts.</div>
-
----
-
-# Why give the plugin workflow a home?
-
-<div class="code-compare main-actor-motivation">
-<div>
-
-```cpp
-MainActorTask loadPreset(...) {
-    app.setLoading(true);
-    app.loadMixerState(preset);
-
-    auto tree = co_await
-        prepareSamplerTree(...);
-
-    sampler.installSamplerTree(tree);
-    app.notifyPresetLoaded();
-}
-```
-
-</div>
-<div class="motivation-stack">
-  <div v-click="1">
-    <h3>That is where the plugin already lives</h3>
-    <p>Host callbacks, editors, and much of the plugin state are main-thread-bound.</p>
-  </div>
-  <div v-click="2">
-    <h3>Only the expensive part needs to leave</h3>
-    <p><code>prepareSamplerTree()</code> can move to a worker without moving the whole workflow there.</p>
-  </div>
-</div>
-</div>
-
-<div v-click="3" class="takeaway">Keep the orchestration at home; explicitly send only the heavy work away.</div>
-
----
-
 # <code>MainActorTask</code> makes affinity the default
 
 <div class="actor-execution-flow">
@@ -1453,40 +1593,6 @@ MainActorTask loadPreset(...) {
 </div>
 
 <div v-click="5" class="takeaway">The return type turns “remember to get back to main” into a reusable guarantee.</div>
-
----
-
-# The cozy part: main-owned state is serialized
-
-<div class="code-compare actor-safety">
-<div class="actor-region-code" :class="{
-  'show-first-region': $clicks === 1,
-  'show-suspension-boundary': $clicks === 2,
-  'show-second-region': $clicks >= 3,
-}">
-
-```cpp
-MainActorTask loadPreset(...) {
-    app.setLoading(true);
-    auto mixer = app.mixerSnapshot();
-
-    auto tree = co_await prepareSamplerTree(...);
-
-    sampler.installSamplerTree(tree);
-    sampler.rebuildKeySwitchMap();
-    app.setLoading(false);
-}
-```
-
-</div>
-<div class="actor-safety-notes">
-  <div v-click="1" class="safe-region-note"><strong>One uninterrupted main-actor region</strong><span>No other main-actor task interleaves here.</span></div>
-  <div v-click="2" class="suspension-note"><strong><code>co_await</code> is the boundary</strong><span>Other main-actor work may run while this task is suspended.</span></div>
-  <div v-click="3" class="safe-region-note"><strong>Then another serialized region</strong><span>After resumption, ordinary main-owned state needs no extra locking.</span></div>
-</div>
-</div>
-
-<div v-click="4" class="takeaway">For state confined to the main actor, the task body is a sequence of race-free regions separated by visible suspension points.</div>
 
 ---
 
@@ -1549,7 +1655,7 @@ auto promise_type::await_transform(
 <div class="structured-celebration-code">
 
 ```cpp
-MainActorTask loadPreset(...) {
+MainActorTask<void> loadPreset(...) {
     ScopeExit finish([&] { app.setLoading(false); });
 
     auto tree = co_await prepareSamplerTree(...);
@@ -1589,7 +1695,7 @@ MainActorTask loadPreset(...) {
 <div class="eyebrow">Inside the coroutine tree</div>
 
 ```cpp
-MainActorTask loadPreset(...) {
+MainActorTask<void> loadPreset(...) {
     auto tree = co_await prepareSamplerTree(...);
     auto samples = co_await loadSamples(...);
     // beautifully owned by the parent task
@@ -1745,7 +1851,7 @@ loading.close();
 }">
 
 ```cpp
-MainActorTask loadPreset(...) {
+MainActorTask<void> loadPreset(...) {
     auto stop = co_await affine::this_task::stop_token;
 
     auto samples = co_await loadSamples(...);
@@ -1775,7 +1881,7 @@ MainActorTask loadPreset(...) {
 <div class="cancellation-exit-code">
 
 ```cpp
-MainActorTask loadPreset(...) {
+MainActorTask<void> loadPreset(...) {
     ScopeExit finish([&] {
         app.setLoading(false);
     });
@@ -1816,7 +1922,7 @@ MainActorTask loadPreset(...) {
 <div class="eyebrow">The API we just used</div>
 
 ```cpp
-MainActorTask loadPreset(...);
+MainActorTask<void> loadPreset(...);
 
 auto loading = affine::spawn(
     loadPreset(...), root);
@@ -1907,7 +2013,7 @@ root.shutdown_and_wait();
 <div class="stdexec-orchestration">
 
 ```cpp
-MainActorTask loadPreset(...) {
+MainActorTask<void> loadPreset(...) {
     auto bytes = co_await readPreset(...);
     auto tree = co_await prepareSamplerTree(bytes);
 
@@ -1931,6 +2037,91 @@ MainActorTask loadPreset(...) {
 </div>
 
 <div v-click="6" class="takeaway">The deciding factor was direction: build the plug-in-specific affinity layer on the execution model C++26 chose.</div>
+
+---
+
+# It’s just <code>stdexec::task</code>
+
+```cpp
+struct MainEnv {
+    using start_scheduler_type = MainThreadLoop::Scheduler;
+};
+
+template <class T>
+using MainActorTask = stdexec::task<T, MainEnv>;
+```
+
+<div v-click>
+
+```cpp
+stdexec::sync_wait(loadPreset(preset));
+```
+
+<p class="muted">✗ does not compile</p>
+
+</div>
+
+<div v-click>
+
+```cpp
+co_await stdexec::schedule(workers);
+```
+
+<p class="muted">→ straight back on Main</p>
+
+</div>
+
+<!--
+three lines · the rest is C++26 std::execution::task
+
+the type names the scheduler → you can read "Main" off the signature
+
+[click] no main scheduler around → compile error (ugly message, but it refuses)
+
+[click] gotcha: affine means EVERY co_await comes home · heavy work goes into a child (starts_on)
+-->
+
+---
+
+# The way home can’t fail
+
+<div class="code-compare">
+<div>
+
+<div class="eyebrow">MainThreadLoop today</div>
+
+```cpp
+using completion_signatures =
+    stdexec::completion_signatures<
+        stdexec::set_value_t(),
+        stdexec::set_stopped_t()>;
+```
+
+</div>
+<div v-click>
+
+<div class="eyebrow">What stdexec::task needs</div>
+
+```cpp
+using completion_signatures =
+    stdexec::completion_signatures<
+        stdexec::set_value_t()>;
+```
+
+</div>
+</div>
+
+<!--
+schedule() = "get me onto this thread" · today the hop itself can end in stopped
+
+[click] infallible: the hop home always arrives
+
+→ otherwise: work finished, result exists, coroutine silently never continues
+
+→ cancellation still works — the awaited work can stop, only the way home can't
+
+→ "loop never drains" is a lifetime problem → finish() / scope join
+-->
 
 ---
 

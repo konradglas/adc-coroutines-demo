@@ -1251,7 +1251,7 @@ body,
 }
 
 .task-kind-question pre {
-  font-size: 0.67rem !important;
+  font-size: 0.83rem !important;
   line-height: 1.25 !important;
 }
 
@@ -1290,7 +1290,7 @@ body,
 }
 
 .main-actor-motivation pre {
-  font-size: 0.68rem !important;
+  font-size: 0.83rem !important;
   line-height: 1.22 !important;
 }
 
@@ -1412,7 +1412,7 @@ body,
 }
 
 .actor-region-code pre {
-  font-size: 0.65rem !important;
+  font-size: 0.83rem !important;
   line-height: 1.22 !important;
 }
 

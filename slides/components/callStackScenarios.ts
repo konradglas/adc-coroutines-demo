@@ -577,4 +577,190 @@ export const scenarios: Record<string, CallStackScenario> = {
       },
     ],
   },
+
+  forgotHop: {
+    threads: ["Main", "Worker"],
+    code: [
+      "task<void> loadPreset(Preset preset) {",
+      "  app.setLoading(true);",
+      "  ScopeExit finish([&] { app.setLoading(false); });",
+      "  co_await resumeOn(workers);",
+      "  auto tree = buildSamplerTree(preset);",
+      "  sampler.install(tree);",
+      "}",
+    ],
+    steps: [
+      {
+        line: [2, 3],
+        label: "Starts on Main",
+        caption: "Main’s executor resumes it, like before. The cleanup is armed on Main.",
+        threads: {
+          Main: [
+            "body|loadPreset() (resume)",
+            "resume|handle.resume()",
+            "executor|MainExecutor::drain()",
+            ...mainLoop,
+          ],
+          Worker: workerIdle,
+        },
+        heap: [{ name: "loadPreset", state: "running", note: "on Main", locals: ["preset", "finish"] }],
+      },
+      {
+        line: 5,
+        label: "Worker builds the tree",
+        caption: "The hop to the worker works. Main is free.",
+        threads: {
+          Main: ["call|Editor::paint()", ...mainLoop],
+          Worker: [
+            "call|buildSamplerTree()",
+            "body|loadPreset() (resume)",
+            "resume|handle.resume()",
+            ...workerLoop,
+          ],
+        },
+        status: { Main: "free · painting" },
+        heap: [{ name: "loadPreset", state: "running", note: "on Worker", locals: ["preset", "finish"] }],
+      },
+      {
+        line: 6,
+        label: "Still on the worker",
+        caption: "Nobody hops back. install() runs on the worker while Main paints the sampler.",
+        threads: {
+          Main: ["call|SamplerView::paint()", ...mainLoop],
+          Worker: [
+            "call|Sampler::install()",
+            "body|loadPreset() (resume)",
+            "resume|handle.resume()",
+            ...workerLoop,
+          ],
+        },
+        status: { Main: "painting · reads sampler" },
+        heap: [{ name: "loadPreset", state: "running", note: "on Worker", locals: ["preset", "finish", "tree"] }],
+      },
+      {
+        line: [3, 7],
+        label: "Cleanup runs on the worker",
+        caption: "The scope ends on the worker, so finish runs there: setLoading(false) off the main thread.",
+        threads: {
+          Main: ["call|Spinner::paint()", ...mainLoop],
+          Worker: [
+            "call|App::setLoading()",
+            "call|ScopeExit::~ScopeExit()",
+            "body|loadPreset() (resume)",
+            "resume|handle.resume()",
+            ...workerLoop,
+          ],
+        },
+        status: { Main: "painting · reads app" },
+        heap: [{ name: "loadPreset", state: "running", note: "unwinding on Worker", locals: ["preset", "finish", "tree"] }],
+      },
+      {
+        label: "Finished on the worker",
+        caption: "The frame is destroyed on the worker. It never came back.",
+        threads: { Main: mainIdle, Worker: workerIdle },
+        heap: [{ name: "loadPreset", state: "done", note: "destroyed on Worker" }],
+      },
+    ],
+  },
+
+  affine: {
+    threads: ["Main", "Worker"],
+    code: [
+      "MainActorTask<void> loadPreset(Preset preset) {",
+      "  app.setLoading(true);",
+      "  auto tree = co_await prepareSamplerTree(preset);",
+      "  sampler.install(tree);",
+      "  app.setLoading(false);",
+      "}",
+    ],
+    steps: [
+      {
+        line: 2,
+        label: "Starts on Main",
+        caption: "Same start as before.",
+        threads: {
+          Main: [
+            "body|loadPreset() (resume)",
+            "resume|handle.resume()",
+            "executor|MainExecutor::drain()",
+            ...mainLoop,
+          ],
+          Worker: workerIdle,
+        },
+        heap: [{ name: "loadPreset", state: "running", note: "on Main", locals: ["preset"] }],
+      },
+      {
+        line: 3,
+        label: "The child hops to the worker",
+        caption: "prepareSamplerTree() runs its ScheduleOn{workers}. The parent waits for it.",
+        threads: {
+          Main: [
+            "call|ScheduleOn::await_suspend()",
+            "body|prepareSamplerTree()",
+            "body|loadPreset() (resume)",
+            "resume|handle.resume()",
+            "executor|MainExecutor::drain()",
+            "loop|NativeEventLoop::run()",
+            "loop|main()",
+          ],
+          Worker: workerIdle,
+        },
+        heap: [
+          { name: "loadPreset", state: "suspended", note: "awaits child", locals: ["preset"] },
+          { name: "prepareSamplerTree", state: "suspended", note: "in worker queue" },
+        ],
+      },
+      {
+        line: 3,
+        label: "Child runs on the worker",
+        caption: "The child does the heavy work. Main is free.",
+        threads: {
+          Main: ["call|Editor::paint()", ...mainLoop],
+          Worker: [
+            "call|buildSamplerTree()",
+            "body|prepareSamplerTree() (resume)",
+            "resume|handle.resume()",
+            ...workerLoop,
+          ],
+        },
+        status: { Main: "free · painting" },
+        heap: [
+          { name: "loadPreset", state: "suspended", note: "awaits child", locals: ["preset"] },
+          { name: "prepareSamplerTree", state: "running", note: "on Worker" },
+        ],
+      },
+      {
+        label: "The task posts itself home",
+        caption: "The child is done. MainActorTask schedules the parent's continuation back onto Main.",
+        threads: {
+          Main: mainIdle,
+          Worker: [
+            "executor|MainExecutor::post()",
+            "call|ResumeOnMain::await_suspend()",
+            "call|prepareSamplerTree() done",
+            ...workerLoop,
+          ],
+        },
+        heap: [
+          { name: "loadPreset", state: "suspended", note: "in Main queue", locals: ["preset", "tree"] },
+          { name: "prepareSamplerTree", state: "done", note: "destroyed" },
+        ],
+      },
+      {
+        line: 4,
+        label: "Back on Main, by itself",
+        caption: "Main drains its queue and resumes the parent. No resumeOn(mainThread) anywhere.",
+        threads: {
+          Main: [
+            "body|loadPreset() (resume)",
+            "resume|handle.resume()",
+            "executor|MainExecutor::drain()",
+            ...mainLoop,
+          ],
+          Worker: workerIdle,
+        },
+        heap: [{ name: "loadPreset", state: "running", note: "on Main", locals: ["preset", "tree"] }],
+      },
+    ],
+  },
 };
