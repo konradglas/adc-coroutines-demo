@@ -132,27 +132,6 @@ export const scenarios: Record<string, CallStackScenario> = {
         heap: [],
       },
       {
-        label: "Spawned, not started",
-        caption:
-          "A click spawns loadPreset(). The frame is created, nothing runs yet.",
-        threads: {
-          Main: [
-            "call|scope.spawn(loadPreset(preset))",
-            "call|onLoadClicked()",
-            ...mainLoop,
-          ],
-          Worker: workerIdle,
-        },
-        heap: [
-          {
-            name: "loadPreset",
-            state: "created",
-            note: "queued on Main",
-            locals: ["preset"],
-          },
-        ],
-      },
-      {
         line: 2,
         label: "Resumed by Main’s executor",
         caption:
@@ -289,36 +268,35 @@ export const scenarios: Record<string, CallStackScenario> = {
 
   callbacks: {
     threads: ["Main"],
-    heapEmpty: "none: _sampleRate and _channelLayout are members",
+    heapEmpty: "none: _license and _library are members",
     code: [
-      "void createSomeProcessor() {",
-      "  if (!_sampleRate || !_channelLayout) return;",
-      "  createProcessor(*_sampleRate, *_channelLayout);",
+      "void enableInstrument() {",
+      "  if (!_license || !_library) return;",
+      "  instrument.enable(*_license, *_library);",
       "}",
-      "void setChannelLayout(auto layout) override {",
-      "  _channelLayout = layout; createSomeProcessor();",
+      "void onLicenseActivated(License l) override {",
+      "  _license = l; enableInstrument();",
       "}",
-      "void setSampleRate(int rate) override {",
-      "  _sampleRate = rate; createSomeProcessor();",
+      "void onLibraryIndexed(Library lib) override {",
+      "  _library = lib; enableInstrument();",
       "}",
     ],
     steps: [
       {
-        label: "Values arrive later, in any order",
-        caption: "Async doesn’t mean “run on another thread”: these two values just arrive later, in any order.",
+        label: "Both arrive later, in any order",
+        caption: "Async doesn’t mean “run on another thread”: the license and the indexed library just arrive later, in any order.",
         threads: { Main: mainIdle },
         heap: [],
       },
       {
         line: 2,
-        label: "Layout first → return",
-        caption:
-          "The layout arrives first. createSomeProcessor() checks: no sample rate yet, return.",
+        label: "License first → return",
+        caption: "The license arrives first. enableInstrument() checks: no library yet, return.",
         threads: {
           Main: [
-            "call|createSomeProcessor()",
-            "call|Plugin::setChannelLayout()",
-            "loop|Host::configureBuses()",
+            "call|enableInstrument()",
+            "call|Plugin::onLicenseActivated()",
+            "loop|LicenseClient::onReply()",
             "loop|NativeEventLoop::run()",
             "loop|main()",
           ],
@@ -327,15 +305,14 @@ export const scenarios: Record<string, CallStackScenario> = {
       },
       {
         line: 3,
-        label: "Rate arrives → create",
-        caption:
-          "The sample rate arrives. Both are there, so the processor is created on Main, inside the host’s callback.",
+        label: "Library arrives → enable",
+        caption: "The indexed library arrives. Both are there, so the instrument is enabled on Main, inside the callback.",
         threads: {
           Main: [
-            "call|createProcessor()",
-            "call|createSomeProcessor()",
-            "call|Plugin::setSampleRate()",
-            "loop|Host::prepareToPlay()",
+            "call|Instrument::enable()",
+            "call|enableInstrument()",
+            "call|Plugin::onLibraryIndexed()",
+            "loop|postedCallback()",
             "loop|NativeEventLoop::run()",
             "loop|main()",
           ],
@@ -344,8 +321,7 @@ export const scenarios: Record<string, CallStackScenario> = {
       },
       {
         label: "Spread over three functions",
-        caption:
-          "The decision is spread over three functions and two members. Nothing in the code says “wait for both, then create”.",
+        caption: "The decision is spread over three functions and two members. Nothing in the code says “wait for both, then enable”.",
         threads: { Main: mainIdle },
         heap: [],
       },
@@ -355,118 +331,77 @@ export const scenarios: Record<string, CallStackScenario> = {
   event: {
     threads: ["Main"],
     code: [
-      "task<void> createSomeProcessor() {",
-      "  for (;;) {",
-      "    auto [rate, layout] = co_await when_all(",
-      "        _sampleRate.value(), _channelLayout.value());",
-      "    createProcessor(rate, layout);",
-      "    co_await when_any(_sampleRate.changed(),",
-      "                      _channelLayout.changed());",
-      "  }",
+      "task<void> startInstrument() {",
+      "  auto [license, library] = co_await when_all(",
+      "      _license.value(), _library.value());",
+      "  instrument.enable(license, library);",
       "}",
-      "void setChannelLayout(auto layout) override {",
-      "  _channelLayout.setValue(layout);",
+      "void onLicenseActivated(License l) override {",
+      "  _license.setValue(l);",
       "}",
-      "void setSampleRate(int rate) override {",
-      "  _sampleRate.setValue(rate);",
+      "void onLibraryIndexed(Library lib) override {",
+      "  _library.setValue(lib);",
       "}",
     ],
     steps: [
       {
-        line: 3,
+        line: 2,
         label: "Started, suspended at once",
-        caption:
-          "Started while the plugin initialises. Neither value is known yet, so it suspends right away.",
+        caption: "Started on Main. Neither is there yet, so it suspends right away.",
         threads: {
           Main: [
-            "body|createSomeProcessor() (resume)",
+            "body|startInstrument() (resume)",
             "resume|handle.resume()",
-            "call|scope.spawn(createSomeProcessor())",
-            "loop|Host::loadPlugin()",
+            "executor|MainExecutor::drain()",
             "loop|NativeEventLoop::run()",
+            "loop|main()",
           ],
         },
-        heap: [
-          {
-            name: "createSomeProcessor",
-            state: "suspended",
-            note: "waiting for both values",
-          },
-        ],
+        heap: [{ name: "startInstrument", state: "suspended", note: "waiting for both" }],
       },
       {
         label: "Main keeps painting",
-        caption:
-          "Back to the host. No executor, no queue: just a frame waiting for a value. Main keeps painting.",
-        threads: { Main: ["call|Editor::paint()", ...mainLoop.slice(0, 2)] },
+        caption: "Back to the host. No executor, no queue: just a frame waiting for two values. Main keeps painting.",
+        threads: { Main: ["call|Editor::paint()", ...mainLoop] },
         status: { Main: "free · painting" },
-        heap: [
-          {
-            name: "createSomeProcessor",
-            state: "suspended",
-            note: "waiting for both values",
-          },
-        ],
+        heap: [{ name: "startInstrument", state: "suspended", note: "waiting for both" }],
       },
       {
-        label: "Layout set → still waiting",
-        caption:
-          "The host sets the channel layout. when_all still needs the sample rate, so setValue() just returns.",
-        line: 11,
+        line: 7,
+        label: "License arrives → still waiting",
+        caption: "The license arrives. when_all still needs the library, so setValue() just returns.",
         threads: {
           Main: [
             "call|AwaitableValue::setValue()",
-            "call|Plugin::setChannelLayout()",
-            "loop|Host::configureBuses()",
+            "call|Plugin::onLicenseActivated()",
+            "loop|LicenseClient::onReply()",
             "loop|NativeEventLoop::run()",
+            "loop|main()",
           ],
         },
-        heap: [
-          {
-            name: "createSomeProcessor",
-            state: "suspended",
-            note: "waiting for sample rate",
-            locals: ["layout"],
-          },
-        ],
+        heap: [{ name: "startInstrument", state: "suspended", note: "waiting for the library", locals: ["license"] }],
       },
       {
-        line: [5, 14],
-        label: "Rate set → resumed inline",
-        caption:
-          "The sample rate completes when_all. setValue() resumes the frame inline, on Main, inside the host’s callback.",
+        line: [4, 10],
+        label: "Library arrives → resumed inline",
+        caption: "The library completes when_all. setValue() resumes the frame inline, on Main, inside the callback.",
         threads: {
           Main: [
-            "body|createSomeProcessor() (resume)",
+            "body|startInstrument() (resume)",
             "resume|handle.resume()",
             "call|AwaitableValue::setValue()",
-            "call|Plugin::setSampleRate()",
-            "loop|Host::prepareToPlay()",
+            "call|Plugin::onLibraryIndexed()",
+            "loop|postedCallback()",
             "loop|NativeEventLoop::run()",
           ],
         },
-        heap: [
-          {
-            name: "createSomeProcessor",
-            state: "running",
-            note: "inside setSampleRate()",
-            locals: ["rate", "layout"],
-          },
-        ],
+        heap: [{ name: "startInstrument", state: "running", note: "inside onLibraryIndexed()", locals: ["license", "library"] }],
       },
       {
-        line: 6,
         label: "One function, top to bottom",
-        caption:
-          "Next co_await: the frame parks and the callback returns. The whole decision reads top to bottom, in one function.",
-        threads: { Main: mainIdle.slice(0, 2) },
-        heap: [
-          {
-            name: "createSomeProcessor",
-            state: "suspended",
-            note: "waiting for a change",
-          },
-        ],
+        caption: "Enabled, done. The whole decision reads top to bottom, in one function.",
+        threads: { Main: mainIdle },
+        heap: [{ name: "startInstrument", state: "done", note: "finished" }],
       },
     ],
   },
@@ -659,6 +594,134 @@ export const scenarios: Record<string, CallStackScenario> = {
         caption: "The frame is destroyed on the worker. It never came back.",
         threads: { Main: mainIdle, Worker: workerIdle },
         heap: [{ name: "loadPreset", state: "done", note: "destroyed on Worker" }],
+      },
+    ],
+  },
+
+  teardown: {
+    threads: ["Main", "Worker"],
+    code: [
+      "Plugin::~Plugin() {",
+      "  root.close_and_wait();",
+      "}",
+      "",
+      "MainActorTask<void> loadPreset(Preset preset) {",
+      "  ScopeExit finish([&] { app.setLoading(false); });",
+      "  auto stop = co_await stdexec::read_env(stdexec::get_stop_token);",
+      "  auto samples = co_await loadSamples(preset);",
+      "  if (stop.stop_requested()) co_return;",
+      "  sampler.installSamples(samples);",
+      "}",
+    ],
+    steps: [
+      {
+        line: 1,
+        label: "Host destroys the plugin",
+        caption: "The host destroys the plugin while a preset is still loading on the worker.",
+        threads: {
+          Main: [
+            "call|Plugin::~Plugin()",
+            "call|Host::destroyPlugin()",
+            ...mainLoop,
+          ],
+          Worker: [
+            "call|readSampleFiles()",
+            "body|loadSamples() (resume)",
+            "resume|handle.resume()",
+            ...workerLoop,
+          ],
+        },
+        status: { Worker: "loading samples" },
+        heap: [
+          { name: "loadPreset", state: "suspended", note: "awaits child", locals: ["preset", "finish"] },
+          { name: "loadSamples", state: "running", note: "on Worker" },
+        ],
+      },
+      {
+        line: 2,
+        label: "Stop requested, Main waits",
+        caption: "close_and_wait() requests stop and waits for the join, inside the destructor.",
+        threads: {
+          Main: [
+            "wait|condition.wait()",
+            "call|loop.sync_wait(root.join())",
+            "call|root.close_and_wait()",
+            "call|Plugin::~Plugin()",
+            "call|Host::destroyPlugin()",
+            "loop|NativeEventLoop::run()",
+            "loop|main()",
+          ],
+          Worker: [
+            "call|readSampleFiles()",
+            "body|loadSamples() (resume)",
+            "resume|handle.resume()",
+            ...workerLoop,
+          ],
+        },
+        status: { Main: "in ~Plugin()", Worker: "loading samples" },
+        heap: [
+          { name: "loadPreset", state: "suspended", note: "stop requested", locals: ["preset", "finish"] },
+          { name: "loadSamples", state: "running", note: "on Worker" },
+        ],
+      },
+      {
+        line: 8,
+        label: "Child done, posts parent home",
+        caption: "The child finishes and posts the parent's continuation onto Main's queue.",
+        threads: {
+          Main: [
+            "wait|condition.wait()",
+            "call|loop.sync_wait(root.join())",
+            "call|root.close_and_wait()",
+            "call|Plugin::~Plugin()",
+            "call|Host::destroyPlugin()",
+            "loop|NativeEventLoop::run()",
+            "loop|main()",
+          ],
+          Worker: [
+            "executor|MainThreadLoop::post()",
+            "call|loadSamples() done",
+            ...workerLoop,
+          ],
+        },
+        status: { Main: "in ~Plugin()" },
+        heap: [
+          { name: "loadPreset", state: "suspended", note: "in Main queue", locals: ["preset", "finish", "samples"] },
+          { name: "loadSamples", state: "done", note: "destroyed" },
+        ],
+      },
+      {
+        line: [9, 6],
+        label: "Unwinds on top of ~Plugin()",
+        caption: "The join runs the posted continuation: stop seen, co_return, ScopeExit turns the spinner off, all on top of the destructor.",
+        threads: {
+          Main: [
+            "call|app.setLoading(false)",
+            "body|loadPreset() (resume)",
+            "resume|handle.resume()",
+            "executor|MainThreadLoop::executeReady()",
+            "call|loop.sync_wait(root.join())",
+            "call|root.close_and_wait()",
+            "call|Plugin::~Plugin()",
+            "loop|Host::destroyPlugin()",
+          ],
+          Worker: workerIdle,
+        },
+        heap: [{ name: "loadPreset", state: "running", note: "co_return → ScopeExit", locals: ["preset", "finish", "samples"] }],
+      },
+      {
+        line: 3,
+        label: "Joined, destructor returns",
+        caption: "Every frame is gone, the join completes, and the destructor returns to the host.",
+        threads: {
+          Main: [
+            "call|Plugin::~Plugin()",
+            "call|Host::destroyPlugin()",
+            ...mainLoop,
+          ],
+          Worker: workerIdle,
+        },
+        heap: [{ name: "loadPreset", state: "done", note: "freed" }],
       },
     ],
   },

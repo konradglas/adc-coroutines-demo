@@ -9,9 +9,8 @@ Every attempted callback-based “improvement” must remain subtly wrong. The e
 1. Move work off main, but mutate the sampler from the worker and race main.
 2. Restore ordering and main-thread affinity, but leave the synchronous `ScopeExit` armed. The function reports completion immediately, then the callback reports it again.
 3. Fix premature completion by deleting the scope guard and completing manually inside the callback. The happy path works, but RAII and automatic exceptional cleanup are gone.
-4. Add the asynchronous missing-sample dialog, but let cancellation return from only the inner callback and strand the operation.
-5. Build a “production-ready” asynchronous function that accepts its own `std::function<void(bool)> completion` and visibly schedules sample loading through `workers.run(work, callback)`. The happy path calls completion from the result callback, but missing sample content takes a normal-looking `return` without completing, so the spinner stays forever. This is the final callback bug before taking a breath and exploring coroutines.
-6. Finally use a coroutine. Its scope survives suspension, restoring structured programming so the original sequential structure and deferred completion become correct again.
+4. Add the asynchronous missing-sample dialog as nested completion callbacks. Cancelling the dialog takes a normal-looking `return` from the inner callback without completing, so the spinner stays forever. QA finds it in the last round. This is the final callback bug before taking a breath and exploring coroutines; the coroutine version later has the same early return, and there it is correct.
+5. Finally use a coroutine. Its scope survives suspension, restoring structured programming so the original sequential structure and deferred completion become correct again.
 
 ## Humor and Reveal Order
 

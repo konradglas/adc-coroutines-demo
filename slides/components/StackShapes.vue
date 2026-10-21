@@ -19,7 +19,7 @@ const shapes = [
   {
     name: 'Event',
     how: 'no loop · resumed inline',
-    frames: ['AwaitableValue::setValue()', 'Plugin::setSampleRate()', 'Host::prepareToPlay()'],
+    frames: ['AwaitableValue::setValue()', 'Plugin::onLibraryIndexed()', 'postedCallback()'],
   },
 ]
 const depth = Math.max(...shapes.map(s => s.frames.length))

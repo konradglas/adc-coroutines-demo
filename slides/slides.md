@@ -28,7 +28,7 @@ void loadPreset(...) {
     auto tree = prepareSamplerTree(preset, mixer);
 
     sampler.installSamplerTree(tree);
-    sampler.buildKeyswitchMap(preset);
+    keySwitches.load(preset);
 }
 ```
 
@@ -36,9 +36,14 @@ void loadPreset(...) {
 
 
 <!--
-the real workflow: mixer → tree → install → keyswitch map
-ScopeExit = "done", always — even on exceptions
-(don't hint at the ordering dependency yet)
+
+Normal loading flow.
+
+Loading flag set
+
+Sampler Loads data
+
+Code in there since ages
 
 [click] all correct… all on main
 -->
@@ -48,10 +53,9 @@ ScopeExit = "done", always — even on exceptions
 # QA, round one
 
 <div class="chat-stack">
-  <ChatMessage v-click from="Developer">Done. Can you give it a quick test?</ChatMessage>
-  <ChatMessage v-click from="QA">Seems to do it's job ... but I get the spinning wheel of death for about 2 seconds! </ChatMessage>
+  <ChatMessage v-click from="QA">Loading gives met the spinning wheel of death for about 2 seconds! </ChatMessage>
   <ChatMessage v-click from="Developer">Hm OK ...  Don't worry ...</ChatMessage>
-  <ChatMessage v-click from="Developer">I know THREADS!</ChatMessage>
+  <ChatMessage v-click from="Developer">I know about THREADS!</ChatMessage>
 </div>
 
 
@@ -62,7 +66,7 @@ proud, breezy
 
 [click] QA: works · 2 s spinner
 
-[click] defensive
+[click] With larger presets this is starting to hang the main thread!
 
 [click] THREADS! — beat
 -->
@@ -77,7 +81,7 @@ workers.run([&, preset, mixer] {
     sampler.installSamplerTree(tree);
 });
 
-sampler.buildKeyswitchMap(preset);
+keySwitches.load(preset);
 app.notifyPresetLoaded();
 ```
 
@@ -85,13 +89,13 @@ app.notifyPresetLoaded();
 
 
 <!--
-slow line → worker, done
+slow line → worker
 
-[click] build + install off main
+[click] off main
 
-[click] the rest stays on main
+[click] rest on main
 
-[click] confident. ship it
+[click] ship it
 -->
 
 ---
@@ -113,11 +117,11 @@ slow line → worker, done
 
 
 <!--
-[click] terser: "try it now"
+[click] "try it now"
 
-[click] QA: weird…
+[click] weird…
 
-[click] three symptoms — let them land
+[click] let it land
 
 [click] LIES!
 -->
@@ -142,7 +146,7 @@ workers.run([&, preset, mixer] {
     sampler.installSamplerTree(tree);
 });
 
-sampler.rebuildKeySwitchMap();
+keySwitches.load(preset);
 ```
 
 </div>
@@ -154,7 +158,7 @@ sampler.rebuildKeySwitchMap();
 
   <div v-if="$clicks === 2" class="race-step race-result">
     <h3>What QA uncovered</h3>
-    <p>reads the installed tree</p>
+    <p>reads the sampler's tree</p>
   </div>
 
   <div v-if="$clicks >= 3" class="race-step race-thread">
@@ -166,7 +170,7 @@ sampler.rebuildKeySwitchMap();
 
   <div v-if="$clicks >= 4" class="race-step race-thread">
     <h3>Main</h3>
-    <p>rebuilds right away</p>
+    <p>loads key switches at once</p>
   </div>
 
   <div v-if="$clicks >= 5" class="race-step race-result">
@@ -178,23 +182,21 @@ sampler.rebuildKeySwitchMap();
 
 
 <!--
-same code as shipped
+[click] load…
 
-[click] the map rebuild…
+[click] only the preset? · sampler inside
 
-[click] assumed: preset only · QA: it reads the installed tree
+[click] worker: whenever
 
-[click] worker installs the tree whenever it's done
+[click] main: at once 🏎️
 
-[click] main rebuilds + says "loaded" right away 🏎️
-
-[click] main wins → stale map · overlap → UB
-→ sometimes worker wins, sometimes main, sometimes both — the order WAS the dependency
+[click] stale or UB
+→ order was the dependency
 -->
 
 ---
 
-# Fine. Restore the order - and main-thread affinity.
+# Restore the order. Dispatch to main
 
 ```cpp {none|7-9|10-13|none}
 ScopeExit finish([&] {
@@ -208,7 +210,7 @@ workers.run([&, preset, mixer] {
 
     mainQueue.post([&, tree = std::move(tree)] {
         sampler.installSamplerTree(tree);
-        sampler.rebuildKeySwitchMap();
+        keySwitches.load(preset);
     });
 });
 ```
@@ -217,11 +219,11 @@ workers.run([&, preset, mixer] {
 
 
 <!--
-[click] post back to main
+[click] post to main
 
-[click] install + rebuild, in order, on main
+[click] in order, on main
 
-[click] ordering ✓ affinity ✓ — ship 🚢
+[click] ship 🚢
 -->
 
 ---
@@ -239,11 +241,11 @@ workers.run([&, preset, mixer] {
 
 
 <!--
-[click] "all fixed" — getting short
+[click] "all fixed"
 
-[click] QA: spinner gone instantly, UI stale
+[click] spinner gone, UI stale
 
-[click] "so it's fast now!"
+[click] fast now!
 -->
 
 ---
@@ -275,11 +277,6 @@ workers.run(...);
     <h3>Scope exit</h3>
     <p>completion fires</p>
   </div>
-
-  <div v-if="$clicks >= 3" class="race-step race-result">
-    <h3>Later</h3>
-    <p>completes again</p>
-  </div>
 </div>
 </div>
 
@@ -294,7 +291,7 @@ workers.run([&, preset, mixer] {
 
     mainQueue.post([&, tree = std::move(tree)] {
         sampler.installSamplerTree(tree);
-        sampler.rebuildKeySwitchMap();
+        keySwitches.load(preset);
         app.notifyPresetLoaded();
         app.setLoading(false);
         finished = true;
@@ -310,19 +307,19 @@ workers.run([&, preset, mixer] {
 
 
 <!--
-oops — the ScopeExit is still armed
+ScopeExit still armed
 
-[click] run() only schedules → returns immediately
+[click] run() returns
 
-[click] loadPreset() returns → ScopeExit: "loaded", spinner off — too early
+[click] done too early
 
-[click] later the posted callback installs + completes a 2nd time
+[click] silent install
 
-[click] RAII would be so nice… can't use it here
+[click] RAII… :(
 
-[click] so: delete the guard, complete by hand in the callback
+[click] complete by hand
 
-[click] happy path ✓ · early exits / exceptions: nobody cleans up
+[click] exceptions: nobody cleans
 -->
 
 ---
@@ -344,21 +341,24 @@ oops — the ScopeExit is still armed
 
 
 <!--
-[click] QA: let the user locate missing samples
+[click] locate samples?
 
-[click] wait for a dialog, then load off main
+[click] dialog, then load
 
-[click] "feature list" 👍 — deflect
+[click] feature list 👍
 -->
 
 ---
 
 # Then I try anyway
 
-```cpp {none|1-3|5-8|9-14}
+```cpp {none|1,4-6|8-11|12-17}
+app.setLoading(true);
+...
+
 prepareSamplerTreeAsync(..., [&](auto tree) {
     sampler.installSamplerTree(tree);
-    sampler.rebuildKeySwitchMap();
+    keySwitches.load(preset);
 
     askUserToLocateSamples(..., [&](auto location) {
         if (!location)
@@ -379,11 +379,11 @@ prepareSamplerTreeAsync(..., [&](auto tree) {
 <!--
 tries anyway
 
-[click] tree, async
+[click] tree
 
-[click] dialog, async (don't point at the return)
+[click] dialog (not the return)
 
-[click] samples, async · complete at the bottom
+[click] samples · complete
 → three nested scopes
 -->
 
@@ -394,22 +394,26 @@ tries anyway
 <div class="bug-pair dense-code">
 <div>
 
-```cpp {hide|hide|hide|none|10-11}
-void loadMissingSamplesAsync(
-    Location location,
-    std::function<void(bool)> completion)
-{
-    workers.run([location] () {
-            return tryLoadSampleContent(location);
-        },
-        [&, completion = std::move(completion)](auto content) {
-            if (!content)
-                return;
+```cpp {hide|hide|hide|none|1,9-10}
+app.setLoading(true);
+...
 
-            sampler.installSamples(*content);
-            completion(true);
+prepareSamplerTreeAsync(..., [&](auto tree) {
+    sampler.installSamplerTree(tree);
+    keySwitches.load(preset);
+
+    askUserToLocateSamples(..., [&](auto location) {
+        if (!location)
+            return;
+
+        loadSamplesAsync(*location, [&](auto samples) {
+            sampler.installSamples(samples);
+            app.notifyPresetLoaded();
+            app.setLoading(false);
+            finished = true;
         });
-}
+    });
+});
 ```
 
 </div>
@@ -420,7 +424,7 @@ void loadMissingSamplesAsync(
   </div>
   <div class="chat-stack" style="margin: 0">
     <ChatMessage v-click="1" from="Developer">That’s it?? Fine. Test it one last time. Then ship it.</ChatMessage>
-    <ChatMessage v-click="2" from="QA">The file is there. But when its sample content is missing, the spinner stays forever.</ChatMessage>
+    <ChatMessage v-click="2" from="QA">When I cancel the file dialog, the spinner stays forever.</ChatMessage>
   </div>
 </div>
 </div>
@@ -428,13 +432,13 @@ void loadMissingSamplesAsync(
 
 
 <!--
-[click] "one last time. then ship it." — frustrated
+[click] one last time — frustrated
 
-[click] QA: content missing → spinner forever
+[click] cancel → spinner forever
 
-[click] the "production-ready" function
+[click] the code
 
-[click] the quiet return 🐛
+[click] on · never off 🐛
 → every return must remember
 -->
 
@@ -445,7 +449,7 @@ void loadMissingSamplesAsync(
 ```text
 prepare tree
 install tree
-rebuild derived state
+load key switches
 ask user
 load samples
 install samples
@@ -456,9 +460,9 @@ notify
 
 
 <!--
-just the steps, plain
+just the steps
 
-[click] simple — but blocking
+[click] but blocking
 -->
 
 ---
@@ -481,7 +485,7 @@ void loadPreset(App& app, Sampler& sampler,
     auto mixer = app.mixerSnapshot();
     auto tree = prepareSamplerTree(preset, mixer);
     sampler.installSamplerTree(tree);
-    sampler.rebuildKeySwitchMap();
+    keySwitches.load(preset);
 
 
 
@@ -499,7 +503,7 @@ void loadPreset(App& app, Sampler& sampler,
 <div v-if="$clicks < 2">
 
 ```cpp
-stdexec::task<void> loadPreset(App& app, Sampler& sampler,
+task<void> loadPreset(App& app, Sampler& sampler,
                 Preset preset, bool& finished) {
     app.setLoading(true);
     ScopeExit finish([&] {
@@ -511,7 +515,7 @@ stdexec::task<void> loadPreset(App& app, Sampler& sampler,
     auto mixer = app.mixerSnapshot();
     auto tree = co_await prepareSamplerTree(preset, mixer);
     sampler.installSamplerTree(tree);
-    sampler.rebuildKeySwitchMap();
+    keySwitches.load(preset);
 
 
 
@@ -525,7 +529,7 @@ stdexec::task<void> loadPreset(App& app, Sampler& sampler,
 <div v-else>
 
 ```cpp {14-19}
-stdexec::task<void> loadPreset(App& app, Sampler& sampler,
+task<void> loadPreset(App& app, Sampler& sampler,
                 Preset preset, bool& finished) {
     app.setLoading(true);
     ScopeExit finish([&] {
@@ -537,7 +541,7 @@ stdexec::task<void> loadPreset(App& app, Sampler& sampler,
     auto mixer = app.mixerSnapshot();
     auto tree = co_await prepareSamplerTree(preset, mixer);
     sampler.installSamplerTree(tree);
-    sampler.rebuildKeySwitchMap();
+    keySwitches.load(preset);
     auto location = co_await askUserToLocateSamples(
         sampler.missingSamples());
     if (!location)
@@ -556,11 +560,11 @@ stdexec::task<void> loadPreset(App& app, Sampler& sampler,
 
 
 <!--
-the sync version — correct, but blocking
+sync: correct, blocking
 
-[click] coroutine: same shape, co_await
+[click] same shape
 
-[click] the new feature: dialog + load, still linear
+[click] new feature, still linear
 -->
 
 ---
@@ -581,7 +585,7 @@ auto tree = prepareSamplerTree(
     preset, mixer);
 
 sampler.installSamplerTree(tree);
-sampler.rebuildKeySwitchMap();
+keySwitches.load(preset);
 ```
 
 </div>
@@ -598,7 +602,7 @@ auto tree = co_await prepareSamplerTree(
     preset, mixer);
 
 sampler.installSamplerTree(tree);
-sampler.rebuildKeySwitchMap();
+keySwitches.load(preset);
 ```
 
 </div>
@@ -613,10 +617,9 @@ sampler.rebuildKeySwitchMap();
 
 
 <!--
-[click] same code — only co_await added
+[click] only co_await
 
-[click] reads in the order it runs · tree / location / samples are plain locals · ScopeExit survives the suspension
-→ suspend without giving up the structure
+[click] order · locals · RAII
 -->
 
 ---
@@ -642,7 +645,7 @@ void loadPreset(...) {
 <div class="eyebrow">Coroutine</div>
 
 ```cpp {none|1|2|4}
-stdexec::task<void> loadPreset(...) {
+task<void> loadPreset(...) {
     auto tree = co_await prepareSamplerTree(...);
     // ...
     co_return;
@@ -653,7 +656,7 @@ stdexec::task<void> loadPreset(...) {
 </div>
 
 <div class="coroutine-keywords">
-  <div v-click="1"><h3><code>stdexec::task</code></h3><p>how it starts, ends, resumes</p></div>
+  <div v-click="1"><h3><code>task</code></h3><p>how it starts, ends, resumes</p></div>
   <div v-click="2"><h3><code>co_await</code></h3><p>may suspend</p></div>
   <div v-click="3"><h3><code>co_return</code></h3><p>completes</p></div>
 </div>
@@ -661,12 +664,11 @@ stdexec::task<void> loadPreset(...) {
 
 
 <!--
-[click] task: the type decides — starts lazily · hands result/error/cancel to the awaiter · resumes on its scheduler
+[click] start, end, resume
 
-[click] co_await: may suspend — the thread is NOT blocked
+[click] may suspend · not blocking
 
-[click] co_return: completes · locals + RAII still run
-→ co_ keywords → coroutine · return type → which kind
+[click] RAII still runs
 -->
 
 ---
@@ -676,7 +678,6 @@ stdexec::task<void> loadPreset(...) {
 <div class="agenda-questions">
 <v-clicks>
 
-- What is an asynchronous operation
 - Why are coroutines non-blocking
 - What thread am I on after the `co_await`
 - How do I get from `void` to `task<void>`
@@ -719,20 +720,20 @@ task<void> mySuspendingFunction() {
 
 
 <!--
-a function that can suspend and resume
+suspend + resume
 
-[click] each co_await may pause and hand control back
+[click] pause points
 
-[click] chunk 1: snapshot → up to the first co_await
+[click] chunk 1
 
-[click] chunk 2: network data → up to the next co_await
+[click] chunk 2
 
-[click] chunk 3: process → send to UI
+[click] chunk 3
 
-[click] localData is used after two suspensions → it lives in the frame, not on a stack
+[click] lives in the frame
 
-[click] one function = 3 chunks, 1 frame
-→ between chunks someone calls resume() — who, on which thread? → next slides
+[click] 3 chunks, 1 frame
+→ who calls resume()?
 -->
 
 ---
@@ -747,98 +748,96 @@ clicks: 3
 <!--
 both idle
 
-[click] click → loadPreset() on main
+[click] click → loadPreset
 
-[click] main stuck in get() · no events, no paint
+[click] stuck in get()
 
-[click] stack back only when worker is done
+[click] back when done
 -->
 
 ---
-clicks: 8
+clicks: 7
 ---
 
-# Who is on the stack?
+# Resumed by an executor
 
 <CallStacks scenario="coroutine" :step="$clicks" />
 
 <!--
-both idle · waiting for a click
+both idle
 
-[click] spawn → frame on heap, nothing ran yet
+[click] executor resumes
 
-[click] executor resumes → body = just a call under resume()
+[click] handle → worker queue
 
-[click] awaitable decides where → handle into worker queue
+[click] Main free · **PAUSE**
 
-[click] returns, resume() returns → Main free. **PAUSE** — that's the answer
+[click] same frame, other stack
 
-[click] same frame, other stack · Main paints, spinner spins
+[click] posted to Main
 
-[click] co_await → Main's queue · worker idle again
+[click] Main resumes
 
-[click] Main drains → resumes
-
-[click] frame gone · nobody waited
+[click] nobody waited
 -->
 
 ---
 clicks: 3
 ---
 
-# Where does this logic live?
+# Events with callbacks
 
 <CallStacks scenario="callbacks" :step="$clicks" :slots="6" />
 
 
 <!--
-async ≠ another thread · values arrive later, any order
+arrive later, any order
 
-[click] layout first → check → return
+[click] license → return
 
-[click] rate → both there → create, inside host callback
+[click] library → enable
 
-[click] decision spread: 3 functions, 2 members
+[click] spread out
 -->
 
 ---
 clicks: 4
 ---
 
-# The same logic, in one place
+# Resumed by an event
 
-<CallStacks scenario="event" :step="$clicks" code-size="0.62rem" :slots="6" />
+<CallStacks scenario="event" :step="$clicks" :slots="6" />
 
 
 <!--
-spawned in initialise → suspends at once
+starts, suspends
 
-[click] no executor, no queue · main paints
+[click] Main paints
 
-[click] layout → setValue() returns
+[click] license → nothing yet
 
-[click] rate → resumed inline, inside the callback
+[click] library → resumed inline
 
-[click] parks again · one function, top to bottom
+[click] top to bottom
 -->
 
 ---
 clicks: 3
 ---
 
-# Polled by the audio thread
+# Resumed by polling
 
 <CallStacks scenario="polled" :step="$clicks" />
 
 
 <!--
-key click → coroutine starts in mouseDown()
+key click → co_await
 
-[click] mouseDown returns · handle waits · nobody wakes audio
+[click] waits in queue
 
-[click] next block polls → resumes, gets the block
+[click] next block resumes
 
-[click] note plays · real-time safe!
+[click] real-time safe!
 -->
 
 ---
@@ -850,8 +849,8 @@ key click → coroutine starts in mouseDown()
 
 
 <!--
-top two rows: always body + resume()
-→ only the caller differs
+same top
+→ different caller
 -->
 
 ---
@@ -864,15 +863,15 @@ clicks: 4
 
 
 <!--
-blocking: main stuck in get()
+blocking: stuck
 
-[click] chunk 1 → hop to worker
+[click] hop to worker
 
-[click] main is free: paint, mouse
+[click] Main free
 
-[click] 2nd coroutine → audio, next block
+[click] 2nd task → audio
 
-[click] back on main · nobody waited
+[click] nobody waited
 -->
 
 ---
@@ -884,39 +883,18 @@ clicks: 5
 <ThreadBadges name="tracking" :step="$clicks" />
 
 <!--
-threads: I always knew where I am · now every co_await may hand me to someone else
+threads: always knew
 
-so I track it myself, line by line
+[click] Main
 
-[click] start: Main
+[click] worker now
 
-[click] resumeOn(workers) → worker from here on
+[click] back
 
-[click] resumeOn(mainThread) → back
+[click] dialog… ?
 
-[click] the file dialog… who resumes me? no idea
-
-[click] and everything after it · even where finish runs · I've become the scheduler
--->
-
----
-clicks: 4
----
-
-# Forgot the hop back
-
-<CallStacks scenario="forgotHop" :step="$clicks" />
-
-<!--
-same code, RAII style · minus the way back
-
-[click] worker builds the tree · fine so far
-
-[click] install() on the worker · Main paints the sampler → race
-
-[click] scope ends on the worker → finish runs there · setLoading(false) off main · no line shows it
-
-[click] frame destroyed on the worker
+[click] I'm the scheduler
+→ forget one → cleanup on worker
 -->
 
 ---
@@ -928,11 +906,9 @@ clicks: 1
 <ThreadBadges name="mainActor" :step="$clicks" />
 
 <!--
-same workflow · return type MainActorTask · the resumeOn lines are gone
+all those ?…
 
-all those question marks…
-
-[click] every line: Main · finish too · the type remembers it for me · enjoy this one
+[click] all Main · enjoy
 -->
 
 ---
@@ -944,15 +920,15 @@ clicks: 4
 <CallStacks scenario="affine" :step="$clicks" />
 
 <!--
-how does it get home without the line?
+how home?
 
-[click] the child hops to the worker by itself · parent waits
+[click] child hops
 
-[click] heavy work on the worker · Main paints
+[click] Main paints
 
-[click] child done → MainActorTask posts the parent home (ResumeOnMain)
+[click] posted home
 
-[click] back on Main · same stacks as "Who is on the stack?" · no resumeOn(mainThread)
+[click] back, by itself
 -->
 
 ---
@@ -995,11 +971,9 @@ MainActorTask<void> loadPreset(...) {
 
 
 <!--
-background work: `Task<T>` · hops to the workers itself
+`Task<T>` vs MainActorTask
 
-plugin workflow: MainActorTask · lives on main
-
-[click] same co_await syntax · the return type says where it continues
+[click] type says where
 -->
 
 ---
@@ -1038,11 +1012,11 @@ MainActorTask<void> loadPreset(...) {
 
 
 <!--
-why main as the default home?
+why main?
 
-[click] the plugin already lives there: host callbacks, editor, most state
+[click] plugin lives there
 
-[click] only the heavy part has to leave → orchestration stays home, heavy work goes out explicitly
+[click] only heavy part leaves
 -->
 
 ---
@@ -1064,7 +1038,7 @@ MainActorTask<void> loadPreset(...) {
     auto tree = co_await prepareSamplerTree(...);
 
     sampler.installSamplerTree(tree);
-    sampler.rebuildKeySwitchMap();
+    keySwitches.load(preset);
     app.setLoading(false);
 }
 ```
@@ -1080,14 +1054,952 @@ MainActorTask<void> loadPreset(...) {
 
 
 <!--
-bonus of one home thread
+one home thread
 
-[click] up to the co_await: nothing else on main runs in between
+[click] uninterrupted
 
-[click] the co_await is the only place others get in
+[click] only at co_await
 
-[click] after it: again uninterrupted · main-owned state needs no locks
+[click] no locks
 -->
+
+---
+
+# Yes! This is actually nice.
+
+<div class="structured-celebration-code">
+
+```cpp
+MainActorTask<void> loadPreset(...) {
+    ScopeExit finish([&] { app.setLoading(false); });
+
+    auto tree = co_await prepareSamplerTree(...);
+    sampler.installSamplerTree(tree);
+
+    auto location = co_await askUserToLocateSamples(...);
+    if (!location)
+        co_return;
+
+    sampler.installSamples(co_await loadSamples(*location));
+}
+```
+
+</div>
+
+<div v-click="1" class="structured-win-grid">
+  <div><strong>Sequential</strong></div>
+  <div><strong>RAII</strong></div>
+  <div><strong>Main-affine</strong></div>
+  <div><strong>Structured</strong></div>
+</div>
+
+
+<!--
+top to bottom
+
+[click] enjoy
+→ structured = contained · no child escapes its parent
+→ "But… hmmm."
+-->
+
+---
+
+# The plugin boundary
+
+<div class="code-compare root-task-problem">
+<div>
+
+<div class="eyebrow">Inside the coroutine tree</div>
+
+```cpp
+MainActorTask<void> loadPreset(...) {
+    auto tree = co_await prepareSamplerTree(...);
+    auto samples = co_await loadSamples(...);
+    // beautifully owned by the parent task
+}
+```
+
+</div>
+<div class="root-call-code" :class="{ 'show-orphan-call': $clicks >= 1 }">
+
+<div class="eyebrow">At the plugin boundary</div>
+
+```cpp
+void onLoadPreset(Preset preset) {
+    loadPreset(preset);
+}
+```
+
+<div v-click="1" class="orphan-caption">lazy task, thrown away</div>
+
+</div>
+</div>
+
+<div class="root-questions">
+  <div v-click="2"><strong>No parent</strong></div>
+  <div v-click="3"><strong>No owner</strong></div>
+  <div v-click="4"><strong>Never even starts</strong></div>
+</div>
+
+<!--
+"Okay. One tiny question…"
+
+[click] lazy task, dropped
+
+[click] nobody awaits
+
+[click] nobody owns
+
+[click] never starts
+-->
+
+---
+
+# One root coroutine
+
+```cpp {none|11|14|7|8|12}
+class Plugin {
+    affine::root_scope root;
+    Channel<Preset> presetRequests;
+
+    MainActorTask<void> run() {
+        for (;;) {
+            auto preset = co_await presetRequests.receive();
+            co_await loadPreset(preset);
+        }
+    }
+    Plugin()  { affine::spawn(run(), root); }
+    ~Plugin() { root.close_and_wait(); }
+
+    void onLoadPreset(Preset preset) { presetRequests.send(preset); }
+};
+```
+
+<!--
+cross the boundary once
+
+[click] one spawn · like main()
+
+[click] callback: just report
+
+[click] wait for preset
+
+[click] queue: B after A
+
+[click] one join
+→ latest wins → close()
+-->
+
+---
+
+# Or: one task per request
+
+<div v-show="$clicks < 4">
+
+```cpp {none|2|6-7|10}
+class Plugin {
+    affine::root_scope root;
+    affine::task_handle loading;
+
+    void onLoadPreset(Preset preset) {
+        loading = affine::spawn(
+            loadPreset(preset), root);
+    }
+
+    ~Plugin() { root.close_and_wait(); }
+};
+```
+
+</div>
+<div v-show="$clicks >= 4">
+
+```cpp {6}
+class Plugin {
+    affine::root_scope root;
+    affine::task_handle loading;
+
+    void onLoadPreset(Preset preset) {
+        loading.close();
+        loading = affine::spawn(
+            loadPreset(preset), root);
+    }
+
+    ~Plugin() { root.close_and_wait(); }
+};
+```
+
+</div>
+
+<div v-click="3" class="scope-ownership-note">
+  <code>onLoadPreset</code> returns at once · <code>~Plugin()</code> waits for it
+</div>
+
+<span v-click="4" style="display: none"></span>
+
+<!--
+same callback · give the task a home
+
+[click] one scope
+
+[click] spawn = start + own
+
+[click] not detached · jthread
+
+[click] click again? → close
+-->
+
+---
+
+# Cancellation
+
+<div class="code-compare cooperative-cancellation">
+<div class="cooperative-code" :class="{
+  'show-stop-token': $clicks === 1,
+  'show-cancellable-wait': $clicks === 2,
+  'show-stop-check': $clicks === 3,
+  'show-publication': $clicks >= 4,
+}">
+
+```cpp
+MainActorTask<void> loadPreset(...) {
+    auto stop = co_await stdexec::read_env(stdexec::get_stop_token);
+
+    auto samples = co_await loadSamples(...);
+
+    if (stop.stop_requested())
+        co_return;
+
+    sampler.installSamples(std::move(samples));
+}
+```
+
+</div>
+<div class="cooperation-notes">
+  <div v-click="1"><strong>Observe</strong></div>
+  <div v-click="2"><strong>Cooperate early</strong></div>
+  <div v-click="3"><strong>Check after the last wait</strong></div>
+  <div v-click="4"><strong>Publish safely</strong></div>
+</div>
+</div>
+
+<!--
+close() = request
+
+[click] stop token
+
+[click] waits end early
+
+[click] check after last wait
+
+[click] check + publish, no gap
+→ all on Main → no locks
+-->
+
+---
+
+# Cancellation
+
+<div class="cancellation-exit-code">
+
+```cpp {all|9|10|2-4|13|13}
+MainActorTask<void> loadPreset(...) {
+    ScopeExit finish([&] {
+        app.setLoading(false);
+    });
+
+    auto stop = co_await stdexec::read_env(stdexec::get_stop_token);
+    auto samples = co_await loadSamples(...);
+
+    if (stop.stop_requested())
+        co_return;
+
+    sampler.installSamples(std::move(samples));
+}
+```
+
+</div>
+
+<div class="cancellation-exit-flow">
+  <span v-click="1">stop observed</span>
+  <b v-click="2">→</b>
+  <span v-click="2"><code>co_return</code></span>
+  <b v-click="3">→</b>
+  <span v-click="3">locals + RAII cleanup</span>
+  <b v-click="4">→</b>
+  <span v-click="4"><code>final_suspend()</code></span>
+  <b v-click="5">→</b>
+  <span v-click="5">scope releases completed frame</span>
+</div>
+
+<!--
+same task, RAII
+
+[click] stop seen
+
+[click] co_return
+
+[click] ScopeExit → spinner off
+
+[click] parent told
+
+[click] then frame freed
+-->
+
+---
+
+# Teardown
+
+<div class="code-compare scope-close-compare">
+<div v-click="1" class="scope-close-card child-close-card">
+
+<div class="eyebrow">Stop one operation during normal use</div>
+
+```cpp
+loading.close();
+```
+
+<div v-click="2" class="close-effects">
+  <span>request stop for this task</span>
+  <span>return immediately</span>
+  <span>leave the executor open</span>
+</div>
+
+</div>
+<div v-click="3" class="scope-close-card root-close-card">
+
+<div class="eyebrow">The plugin is going away</div>
+
+```cpp
+root.close_and_wait();
+```
+
+<div v-click="4" class="close-effects">
+  <span>request stop for everything</span>
+  <span>wait until all have unwound</span>
+  <span>then destroy frames</span>
+  <span>runs the remaining tasks on Main</span>
+</div>
+
+</div>
+</div>
+
+<div v-click="5" class="scope-boundary-summary">
+  <span>many asynchronous tasks</span>
+  <b>→</b>
+  <strong>one synchronous lifetime boundary</strong>
+</div>
+
+<!--
+two ways to stop
+
+[click] close one
+
+[click] request, return
+
+[click] plugin goes away
+
+[click] stop all, wait, free
+→ they resume on Main → join drives them · no UI events
+→ plain blocking wait = deadlock
+→ needed my own bit
+→ forget join → terminate
+→ every wait must end
+→ like the last callback bug
+
+[click] one sync point
+-->
+
+
+---
+clicks: 4
+---
+
+# Inside <code>close_and_wait()</code>
+
+<CallStacks scenario="teardown" :step="$clicks" :slots="8" code-size="0.64rem" />
+
+<!--
+host kills plugin · load still on worker
+
+[click] stop · then wait right here, in the dtor
+
+[click] child ignores stop · posts home
+
+[click] join drives it · spinner off · ON TOP of ~Plugin() · **PAUSE**
+
+[click] joined · frames gone · back to host
+-->
+---
+
+# Before <code>stdexec</code>
+
+<div class="framework-pair">
+  <div v-click="1" class="framework-card">
+    <div class="framework-name">Boost.Cobalt</div>
+    <strong>coroutines on top of Boost.Asio</strong>
+    <span>races · scopes · implicit cancellation</span>
+    <div v-click="2" class="framework-hesitation framework-tradeoff">
+      <b>single-threaded by design</b>
+      worker ↔ main hops: not its shape
+    </div>
+  </div>
+  <div v-click="3" class="framework-card">
+    <div class="framework-name">jbaldwin/libcoro</div>
+    <strong>small toolbox</strong>
+    <span>tasks · thread pools · awaitables</span>
+    <div v-click="4" class="framework-hesitation framework-tradeoff">
+      <b>my first favourite</b>
+      small enough to read
+    </div>
+  </div>
+</div>
+
+<!--
+shipped both · liked both
+
+[click] Cobalt: Asio + nice coroutines · in production
+
+[click] one thread · hopping not its thing
+
+[click] libcoro: threads + pools · in production
+
+[click] read it in an afternoon
+→ neither knew the host thread → my bit
+→ Folly? too big, Windows build (only if asked)
+-->
+---
+
+# Why I ended up with <code>stdexec</code>
+
+<div class="stdexec-choice-layout stdexec-stack-only">
+<div class="stdexec-stack">
+  <div v-click="1" class="standards-winner"><strong>It won.</strong><span><a href="https://wg21.link/P2300">P2300</a> sender/receiver became C++26 <code>std::execution</code>.</span></div>
+  <div v-click="4" class="stdexec-layer coroutine-layer"><strong><code>stdexec::task</code></strong><span>sticky resumption · stop tokens</span></div>
+  <div v-click="3" class="stdexec-layer affine-layer"><strong>Plug-in layer</strong><span>main-loop scheduler · scope handles</span></div>
+  <div v-click="2" class="stdexec-layer sender-layer"><strong>stdexec</strong><span>Reference implementation · senders · schedulers · stop environments</span></div>
+</div>
+</div>
+
+<div v-click="5" class="stdexec-operation-flow">
+  <span>senders implement individual operations</span>
+  <b>→</b>
+  <span>coroutines express the workflow</span>
+</div>
+
+<!--
+so: build on what C++26 chose
+
+[click] C++26
+
+[click] senders, schedulers
+
+[click] ours: loop + scopes
+
+[click] task: free affinity
+
+[click] direction
+-->
+
+
+---
+
+# Questions?
+
+<div class="code-compare">
+<div>
+
+```cpp
+MainActorTask<void> loadPreset(Preset preset) {
+    app.setLoading(true);
+    ScopeExit finish([&] { app.setLoading(false); });
+
+    auto tree = co_await prepareSamplerTree(preset);
+    sampler.installSamplerTree(tree);
+
+    auto location = co_await askUserToLocateSamples();
+    if (!location)
+        co_return;
+
+    sampler.installSamples(co_await loadSamples(*location));
+}
+```
+
+</div>
+<div>
+
+- [github.com/konradglas/adc-coroutines-demo](https://github.com/konradglas/adc-coroutines-demo)
+- [github.com/konradglas/stdexec-affine](https://github.com/konradglas/stdexec-affine)
+- [github.com/NVIDIA/stdexec](https://github.com/NVIDIA/stdexec)
+
+</div>
+</div>
+
+<!--
+back to the start
+
+thanks
+-->
+
+---
+
+# Backup
+
+<!--
+backup: how coroutines work under the hood (promise_type, awaitables, continuations)
+-->
+
+---
+
+# It’s just <code>stdexec::task</code>
+
+```cpp
+struct MainEnv {
+    using start_scheduler_type = MainThreadLoop::Scheduler;
+};
+
+template <class T>
+using MainActorTask = stdexec::task<T, MainEnv>;
+```
+
+<div v-click>
+
+```cpp
+stdexec::sync_wait(loadPreset(preset));
+```
+
+<p class="muted">✗ does not compile</p>
+
+</div>
+
+<div v-click>
+
+```cpp
+co_await stdexec::schedule(workers);
+```
+
+<p class="muted">→ straight back on Main</p>
+
+</div>
+
+<!--
+three lines
+
+[click] won't compile
+
+[click] every co_await comes home
+-->
+
+---
+
+# Where did all that machinery come from?
+
+<div class="runtime-origin-layout">
+<div class="runtime-origin-code">
+
+<div class="eyebrow">The API we just used</div>
+
+```cpp
+MainActorTask<void> loadPreset(...);
+
+auto loading = affine::spawn(
+    loadPreset(...), root);
+
+loading.close();
+root.close_and_wait();
+```
+
+</div>
+<div class="runtime-origin-answer">
+  <div v-click="1" class="not-from-standard">None of this came with C++20.</div>
+  <div class="runtime-origin-split">
+    <div v-click="2">
+      <strong>C++20 gave us</strong>
+      <span><code>co_await</code>, coroutine frames and the compiler’s suspend/resume protocol.</span>
+    </div>
+    <div v-click="3" class="runtime-still-needed">
+      <strong>We still needed</strong>
+      <span>Tasks, schedulers, ownership, cancellation propagation and message-thread integration.</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<div v-click="4" class="takeaway">That API is the result of choosing a foundation - and filling its plug-in-specific gaps.</div>
+
+
+---
+
+# The larger ecosystems
+
+<div class="framework-pair">
+  <div v-click="1" class="framework-card">
+    <div class="framework-name">Folly</div>
+    <strong>Mature production ecosystem</strong>
+    <span>Tasks, executors, cancellation, scopes and a huge collection of async primitives.</span>
+    <div v-click="2" class="framework-hesitation framework-tradeoff">
+      <b>Why I moved on</b>
+      A much larger dependency than I wanted for a plug-in, and I could not get my Windows build into a state I was happy with.
+    </div>
+  </div>
+  <div v-click="3" class="framework-card production-framework">
+    <div class="framework-name">Boost.Cobalt</div>
+    <strong>A pleasant coroutine-first API</strong>
+    <span>Tasks, structured composition, races, scopes and implicit cancellation. I have shipped this in production.</span>
+    <div v-click="4" class="framework-hesitation framework-tradeoff">
+      <b>The shape</b>
+      Cobalt is deliberately single-threaded. That makes its concurrency model wonderfully simple, but worker ↔ main executor hopping is not what it is built around.
+    </div>
+  </div>
+</div>
+
+<div v-click="5" class="takeaway">Cobalt has served me well in production. Folly was simply the one I could not make fit this plug-in environment.</div>
+
+
+---
+
+# The focused options
+
+<div class="framework-pair">
+  <div v-click="1" class="framework-card">
+    <div class="framework-name">jbaldwin/libcoro</div>
+    <strong>The nicest toolbox</strong>
+    <span>Small enough to understand, with tasks, schedulers, thread pools and useful awaitables. Initially my favourite - and used in production.</span>
+    <div v-click="2" class="framework-hesitation framework-tradeoff">
+      <b>What remains ours</b>
+      It gives flexible primitives; I still decide how task trees are owned and synchronously torn down with the plug-in.
+    </div>
+  </div>
+  <div v-click="3" class="framework-card selected-framework">
+    <div class="framework-name">stdexec</div>
+    <strong>The committee chose this model</strong>
+    <span>P2300 sender/receiver became C++26 <code>std::execution</code>; stdexec is its reference implementation.</span>
+    <div v-click="4" class="framework-hesitation framework-tradeoff">
+      <b>The price</b>
+      Sender/receiver is harder to learn and considerably more template-heavy.
+    </div>
+  </div>
+</div>
+
+<div v-click="5" class="framework-shared-gap">
+  <strong>Shared plug-in gap:</strong> none of these libraries knows about the host-owned message thread. Every option needs a plug-in-specific integration layer.
+</div>
+
+<!--
+the smaller libraries
+
+[click] libcoro: a toolbox I liked · used it in production
+
+[click] ownership and shutdown with the plug-in stay my job
+
+[click] stdexec: what C++26 chose
+
+[click] the price: harder to learn, lots of templates
+
+[click] same gap everywhere: the host's message thread → the teardown bit from before
+-->
+
+
+---
+
+# The way home can’t fail
+
+<div class="code-compare">
+<div>
+
+<div class="eyebrow">MainThreadLoop before</div>
+
+```cpp
+using completion_signatures =
+    stdexec::completion_signatures<
+        stdexec::set_value_t(),
+        stdexec::set_stopped_t()>;
+```
+
+</div>
+<div v-click>
+
+<div class="eyebrow">MainThreadLoop now</div>
+
+```cpp
+using completion_signatures =
+    stdexec::completion_signatures<
+        stdexec::set_value_t()>;
+```
+
+</div>
+</div>
+
+<!--
+schedule() = "get me onto this thread" · before: the hop itself could end in stopped
+
+[click] infallible: the hop home always arrives
+
+→ otherwise: work finished, result exists, coroutine silently never continues
+
+→ cancellation still works — the awaited work can stop, only the way home can't
+
+→ "loop never drains" is a lifetime problem → finish() / scope join
+-->
+
+
+---
+
+# Scopes on stdexec
+
+<div class="dense-code">
+
+| In this talk | On stdexec |
+|---|---|
+| `affine::create_root_scope()` | `stdexec::counting_scope root;` |
+| `affine::spawn(task, root)` | `spawn(loop, task, root.get_token())` |
+| `loading.close()` | `loading->request_stop()` |
+| `root.close_and_wait()` | `root.request_stop();` `sync_wait(root.join());` |
+
+</div>
+
+<!--
+the names from the scope slides → what they are on stdexec
+
+spawn + handle: ~70 lines of our own on top of counting_scope + associate
+
+tested: stopping the root reaches the task · cleanup still runs on main
+-->
+
+
+---
+
+# Excellent. The abstractions will save us.
+
+<div class="framework-confidence-grid">
+  <div v-click="1"><strong>Execution</strong><span>explicit schedulers</span></div>
+  <div v-click="1"><strong>Ownership</strong><span>structured task scopes</span></div>
+  <div v-click="1"><strong>Affinity</strong><span>sticky main-thread tasks</span></div>
+  <div v-click="1"><strong>Cancellation</strong><span>cooperative stop propagation</span></div>
+</div>
+
+<div v-click="2" class="framework-confidence-punchline">C++ is still C++.</div>
+
+
+---
+
+# Footgun #1: one harmless refactor
+
+<div class="capture-refactor-lead">
+
+```cpp
+auto myResource = Object{};
+```
+
+</div>
+
+<div class="code-compare capture-refactor-compare">
+<div class="capture-variant safe-capture-variant">
+
+<div class="eyebrow">Directly awaited</div>
+
+```cpp
+co_await [myResource]() -> Task {
+    co_await something();
+    useResource(myResource);
+}();
+```
+
+<div v-click="1" class="capture-caption safe-caption">The closure temporary survives until this full expression finishes.</div>
+
+</div>
+<div v-click="2" class="capture-variant broken-capture-variant">
+
+<div class="eyebrow">Stored first</div>
+
+```cpp
+auto task = [myResource]() -> Task {
+    co_await something();
+    useResource(myResource);
+}();
+
+co_await std::move(task);
+```
+
+<div class="capture-caption broken-caption">The first full expression ends before the task is awaited. The closure dies there.</div>
+
+</div>
+</div>
+
+<div v-click="3" class="capture-lifetime-flow">
+  <span>capture lives in closure</span><b>→</b><span>coroutine frame keeps <code>this</code></span><b>→</b><span class="dead-closure">dangling closure pointer</span>
+</div>
+
+<div v-click="4" class="llm-footgun">LLMs ALWAYS get this wrong: “capture by value copied it into the coroutine frame.” Nope. 👋</div>
+
+
+---
+
+# Put coroutine state in coroutine parameters
+
+<div class="code-compare coroutine-parameter-fix">
+<div>
+
+```cpp
+auto task = [](Object resource) -> Task {
+    co_await something();
+    useResource(resource);
+}(std::move(myResource));
+
+co_await std::move(task);
+```
+
+</div>
+<div class="parameter-frame-flow">
+  <div v-click="1"><code>myResource</code><span>call argument</span></div>
+  <b v-click="2">→</b>
+  <div v-click="2" class="frame-owned-parameter"><code>resource</code><span>coroutine parameter copied into frame</span></div>
+  <b v-click="3">✓</b>
+</div>
+</div>
+
+<div v-click="4" class="takeaway">A capture belongs to the callable object. A coroutine parameter belongs to the coroutine frame.</div>
+
+
+---
+
+# Footgun #2: RAII works a little too well
+
+<div class="code-compare lock-footgun-compare">
+<div class="lock-footgun-broken">
+
+<div class="eyebrow">Ordinary scoped lock</div>
+
+```cpp
+ScopedLock lock(stateMutex);
+auto mixer = app.mixerSnapshot();
+
+auto tree = co_await
+    prepareSamplerTree(preset, mixer);
+
+sampler.installSamplerTree(std::move(tree));
+```
+
+<div v-click="1" class="lock-held-caption">The coroutine scope survives suspension. So does the lock.</div>
+
+<div v-click="2" class="lock-consequences">
+  <span>other work blocks</span>
+  <span>suspension can last arbitrarily long</span>
+  <span>resumption may happen on another thread</span>
+</div>
+
+</div>
+<div v-click="3" class="lock-footgun-fixed">
+
+<div class="eyebrow">Snapshot, release, then await</div>
+
+```cpp
+MixerSnapshot mixer;
+{
+    ScopedLock lock(stateMutex);
+    mixer = app.mixerSnapshot();
+}
+
+auto tree = co_await
+    prepareSamplerTree(preset, mixer);
+
+{
+    ScopedLock lock(stateMutex);
+    sampler.installSamplerTree(std::move(tree));
+}
+```
+
+</div>
+</div>
+
+<div v-click="4" class="takeaway">RAII spans suspension. Never suspend while holding an ordinary blocking or thread-owned lock.</div>
+
+
+---
+
+# Footgun #3: sometimes the frame itself is broken
+
+<div class="code-compare cobalt-footgun-layout">
+<div>
+
+<div class="eyebrow">Our Windows-only Boost.Cobalt patch</div>
+
+```cpp
+#ifdef _MSC_VER
+#define COBALT_PROMISE_ALIGN alignas(32)
+#else
+#define COBALT_PROMISE_ALIGN
+#endif
+
+template<class Return>
+struct COBALT_PROMISE_ALIGN task_promise
+    : promise_memory_resource_base,
+      /* ... */
+{};
+```
+
+</div>
+<div class="cobalt-bug-story">
+  <div v-click="1"><strong>The symptom</strong><span>Release-only access violations on MSVC when returning particular object layouts from <code>cobalt::task&lt;T&gt;</code>.</span></div>
+  <div v-click="2"><strong>The workaround</strong><span>Patch Cobalt’s promise type to <code>alignas(32)</code> while Conan generates the Windows build.</span></div>
+  <div v-click="3"><strong>The state in August 2026</strong><span><a href="https://github.com/boostorg/cobalt/issues/172">boostorg/cobalt#172</a> is still open; current <code>task_promise</code> remains unannotated.</span></div>
+</div>
+</div>
+
+<div v-click="4" class="takeaway">Sometimes the lifetime model is fine and the compiler-generated frame still falls through the floor.</div>
+
+
+---
+
+# Three footguns. Three different layers.
+
+<div class="footgun-summary-grid">
+  <div v-click="1"><strong>Outside the frame</strong><span>The lambda capture died with its closure.</span></div>
+  <div v-click="2"><strong>Inside the frame too long</strong><span>The lock survived across suspension.</span></div>
+  <div v-click="3"><strong>The frame itself</strong><span>MSVC needed stronger promise alignment.</span></div>
+</div>
+
+<div v-click="4" class="takeaway">Frameworks remove repeated control-flow plumbing. They do not repeal C++ lifetime rules - or compiler bugs.</div>
+
+
+
+---
+
+# <code>close()</code> is a request - not a wrecking ball
+
+<div class="close-request-call">
+
+```cpp
+loading.close();
+```
+
+</div>
+
+<div class="close-request-flow">
+  <div v-click="1"><code>loading</code><span>close this task</span></div>
+  <b v-click="2">→</b>
+  <div v-click="2" class="stop-request-node"><code>stop requested</code><span>this task</span></div>
+  <b v-click="3">→</b>
+  <div v-click="3"><code>close()</code> returns<span>caller keeps running</span></div>
+</div>
+
+<div v-click="4" class="close-does-not-grid">
+  <div><strong>No thread killed</strong></div>
+  <div><strong>No frame destroyed</strong></div>
+  <div><strong>Not finished yet</strong></div>
+</div>
+
+<!--
+loading.close() — what actually happens?
+
+[click] the handle closes this task
+
+[click] → stop requested for it · whatever it awaits sees the stop too
+
+[click] → close() returns right away · the caller keeps going
+
+[click] running code isn't interrupted · suspended frames stay alive · the task still has to cooperate
+-->
+
 
 ---
 
@@ -1649,665 +2561,22 @@ auto promise_type::await_transform(
 <div v-click="4" class="takeaway"><code>await_transform</code> lets the return type apply one resumption policy to every suspension point.</div>
 
 ---
-
-# Yes! This is actually nice.
-
-<div class="structured-celebration-code">
-
-```cpp
-MainActorTask<void> loadPreset(...) {
-    ScopeExit finish([&] { app.setLoading(false); });
-
-    auto tree = co_await prepareSamplerTree(...);
-    sampler.installSamplerTree(tree);
-
-    auto location = co_await askUserToLocateSamples(...);
-    if (!location)
-        co_return;
-
-    sampler.installSamples(co_await loadSamples(*location));
-}
-```
-
-</div>
-
-<div v-click="1" class="structured-win-grid">
-  <div><strong>Sequential</strong><span>The workflow reads from top to bottom.</span></div>
-  <div><strong>RAII</strong><span>Cleanup survives every suspension.</span></div>
-  <div><strong>Main-affine</strong><span>Plugin state stays on its cozy actor.</span></div>
-  <div><strong>Composable</strong><span>Child tasks own their continuation handoff.</span></div>
-</div>
-
-<div v-click="2" class="structured-celebration-summary">Structured control flow. Structured execution. Structured lifetime.</div>
-
-<div class="celebration-doubt">
-  <strong v-click="3">But...</strong>
-  <span v-click="4">hmmm.</span>
-</div>
-
+clicks: 4
 ---
 
-# Okay. One tiny question...
+# Forgot the hop back
 
-<div class="code-compare root-task-problem">
-<div>
-
-<div class="eyebrow">Inside the coroutine tree</div>
-
-```cpp
-MainActorTask<void> loadPreset(...) {
-    auto tree = co_await prepareSamplerTree(...);
-    auto samples = co_await loadSamples(...);
-    // beautifully owned by the parent task
-}
-```
-
-</div>
-<div class="root-call-code" :class="{ 'show-orphan-call': $clicks >= 1 }">
-
-<div class="eyebrow">At the plugin boundary</div>
-
-```cpp
-void onLoadPreset() {
-    loadPreset(...);
-}
-```
-
-<div v-click="1" class="orphan-caption">This merely creates a lazy task - and then throws the task object away.</div>
-
-</div>
-</div>
-
-<div class="root-questions">
-  <div v-click="2"><strong>No parent coroutine</strong><span>Nothing awaits it or provides a continuation.</span></div>
-  <div v-click="3"><strong>No structural owner</strong><span>Nothing is responsible for keeping its frame alive.</span></div>
-  <div v-click="4"><strong>Remember <code>initial_suspend()</code>?</strong><span>A lazy root does not even start until something starts it.</span></div>
-</div>
-
-<div v-click="5" class="takeaway">The coroutine tree still needs a root.</div>
-
----
-
-# One root scope owns the whole forest
-
-<div class="code-compare root-scope-slide">
-<div>
-
-```cpp
-auto root = affine::create_root_scope();
-
-auto loading = affine::spawn(
-    loadPreset(...), root);
-
-auto scan = affine::spawn(
-    scanMissingSamples(...), loading);
-
-auto preview = affine::spawn(
-    renderPreview(...), loading);
-```
-
-</div>
-<div class="scope-tree">
-  <div v-click="1" class="scope-node root-scope-node"><code>root_scope</code><span>plugin lifetime</span></div>
-  <div v-click="2" class="scope-branch">↓ owns</div>
-  <div v-click="2" class="scope-node task-scope-node"><code>loadPreset</code><span><code>TaskHandle loading</code></span></div>
-  <div v-click="3" class="scope-fork"><span>↙ owns</span><span>owns ↘</span></div>
-  <div v-click="3" class="scope-leaves">
-    <div class="scope-node"><code>scanMissingSamples</code></div>
-    <div class="scope-node"><code>renderPreview</code></div>
-  </div>
-</div>
-</div>
-
-<div v-click="4" class="scope-ownership-note">
-  Keep a <code>TaskHandle</code> only when you need to close - and request cancellation for - that subtree later.
-</div>
-
-<div v-click="5" class="takeaway">Each spawned task is retained by its structural parent until that subtree completes.</div>
-
----
-
-# Only the root pays the teardown bill
-
-<div class="code-compare scope-close-compare">
-<div v-click="1" class="scope-close-card child-close-card">
-
-<div class="eyebrow">Stop one operation during normal use</div>
-
-```cpp
-loading.close();
-```
-
-<div v-click="2" class="close-effects">
-  <span>request stop for this subtree</span>
-  <span>return immediately</span>
-  <span>leave the executor open</span>
-</div>
-
-</div>
-<div v-click="3" class="scope-close-card root-close-card">
-
-<div class="eyebrow">The plugin is going away</div>
-
-```cpp
-root.shutdown_and_wait();
-```
-
-<div v-click="4" class="close-effects">
-  <span>request stop for the entire tree</span>
-  <span>wait until every owned task has completed and unwound</span>
-  <span>destroy frames only after completion</span>
-</div>
-
-</div>
-</div>
-
-<div v-click="5" class="scope-boundary-summary">
-  <span>many asynchronous tasks</span>
-  <b>→</b>
-  <strong>one synchronous lifetime boundary</strong>
-</div>
-
-<div v-click="6" class="takeaway">Child handles only need to close their branch. The root guarantees that nothing survives plugin teardown.</div>
-
----
-
-# <code>close()</code> is a request - not a wrecking ball
-
-<div class="close-request-call">
-
-```cpp
-loading.close();
-```
-
-</div>
-
-<div class="close-request-flow">
-  <div v-click="1"><code>TaskHandle</code><span>close this subtree</span></div>
-  <b v-click="2">→</b>
-  <div v-click="2" class="stop-request-node"><code>stop requested</code><span>task + descendants</span></div>
-  <b v-click="3">→</b>
-  <div v-click="3"><code>close()</code> returns<span>caller keeps running</span></div>
-</div>
-
-<div v-click="4" class="close-does-not-grid">
-  <div><strong>Does not kill a thread</strong><span>Running code is not interrupted.</span></div>
-  <div><strong>Does not destroy a frame</strong><span>Suspended state remains alive.</span></div>
-  <div><strong>Does not mean “finished”</strong><span>The subtree still has to cooperate.</span></div>
-</div>
-
-<div v-click="5" class="takeaway"><code>close()</code> changes cancellation state. The task decides when that state affects control flow.</div>
-
----
-
-# Cancellation is cooperative
-
-<div class="code-compare cooperative-cancellation">
-<div class="cooperative-code" :class="{
-  'show-stop-token': $clicks === 1,
-  'show-cancellable-wait': $clicks === 2,
-  'show-stop-check': $clicks === 3,
-  'show-publication': $clicks >= 4,
-}">
-
-```cpp
-MainActorTask<void> loadPreset(...) {
-    auto stop = co_await affine::this_task::stop_token;
-
-    auto samples = co_await loadSamples(...);
-
-    if (stop.stop_requested())
-        co_return;
-
-    sampler.installSamples(std::move(samples));
-}
-```
-
-</div>
-<div class="cooperation-notes">
-  <div v-click="1"><strong>Observe</strong><span>The token is a view of this task’s inherited cancellation state.</span></div>
-  <div v-click="2"><strong>Cooperate early</strong><span>Child tasks inherit the request; cancellation-aware waits may finish early.</span></div>
-  <div v-click="3"><strong>Check after the final wait</strong><span>Even a non-cancellable operation can finish without publishing stale work.</span></div>
-  <div v-click="4"><strong>Publish safely</strong><span>No suspension separates the check from this main-actor state change.</span></div>
-</div>
-</div>
-
-<div v-click="5" class="takeaway">A stop request becomes cancellation only at a cooperation point.</div>
-
----
-
-# Cancellation leaves through the front door
-
-<div class="cancellation-exit-code">
-
-```cpp
-MainActorTask<void> loadPreset(...) {
-    ScopeExit finish([&] {
-        app.setLoading(false);
-    });
-
-    auto stop = co_await affine::this_task::stop_token;
-    auto samples = co_await loadSamples(...);
-
-    if (stop.stop_requested())
-        co_return;
-
-    sampler.installSamples(std::move(samples));
-}
-```
-
-</div>
-
-<div class="cancellation-exit-flow">
-  <span v-click="1">stop observed</span>
-  <b v-click="2">→</b>
-  <span v-click="2"><code>co_return</code></span>
-  <b v-click="3">→</b>
-  <span v-click="3">locals + RAII cleanup</span>
-  <b v-click="4">→</b>
-  <span v-click="4"><code>final_suspend()</code></span>
-  <b v-click="5">→</b>
-  <span v-click="5">scope releases completed frame</span>
-</div>
-
-<div v-click="6" class="takeaway">Cancellation preserves structured exit: cleanup first, frame destruction only after completion.</div>
-
----
-
-# Where did all that machinery come from?
-
-<div class="runtime-origin-layout">
-<div class="runtime-origin-code">
-
-<div class="eyebrow">The API we just used</div>
-
-```cpp
-MainActorTask<void> loadPreset(...);
-
-auto loading = affine::spawn(
-    loadPreset(...), root);
-
-loading.close();
-root.shutdown_and_wait();
-```
-
-</div>
-<div class="runtime-origin-answer">
-  <div v-click="1" class="not-from-standard">None of this came with C++20.</div>
-  <div class="runtime-origin-split">
-    <div v-click="2">
-      <strong>C++20 gave us</strong>
-      <span><code>co_await</code>, coroutine frames and the compiler’s suspend/resume protocol.</span>
-    </div>
-    <div v-click="3" class="runtime-still-needed">
-      <strong>We still needed</strong>
-      <span>Tasks, schedulers, ownership, cancellation propagation and message-thread integration.</span>
-    </div>
-  </div>
-</div>
-</div>
-
-<div v-click="4" class="takeaway">That API is the result of choosing a foundation - and filling its plug-in-specific gaps.</div>
-
----
-
-# The larger ecosystems
-
-<div class="framework-pair">
-  <div v-click="1" class="framework-card">
-    <div class="framework-name">Folly</div>
-    <strong>Mature production ecosystem</strong>
-    <span>Tasks, executors, cancellation, scopes and a huge collection of async primitives.</span>
-    <div v-click="2" class="framework-hesitation framework-tradeoff">
-      <b>Why I moved on</b>
-      A much larger dependency than I wanted for a plug-in, and I could not get my Windows build into a state I was happy with.
-    </div>
-  </div>
-  <div v-click="3" class="framework-card production-framework">
-    <div class="framework-name">Boost.Cobalt</div>
-    <strong>A pleasant coroutine-first API</strong>
-    <span>Tasks, structured composition, races, scopes and implicit cancellation. I have shipped this in production.</span>
-    <div v-click="4" class="framework-hesitation framework-tradeoff">
-      <b>The shape</b>
-      Cobalt is deliberately single-threaded. That makes its concurrency model wonderfully simple, but worker ↔ main executor hopping is not what it is built around.
-    </div>
-  </div>
-</div>
-
-<div v-click="5" class="takeaway">Cobalt has served me well in production. Folly was simply the one I could not make fit this plug-in environment.</div>
-
----
-
-# The focused options
-
-<div class="framework-pair">
-  <div v-click="1" class="framework-card">
-    <div class="framework-name">jbaldwin/libcoro</div>
-    <strong>The nicest toolbox</strong>
-    <span>Small enough to understand, with tasks, schedulers, thread pools and useful awaitables. Initially my favourite - and used in production.</span>
-    <div v-click="2" class="framework-hesitation framework-tradeoff">
-      <b>What remains ours</b>
-      It gives flexible primitives; I still decide how task trees are owned and synchronously torn down with the plug-in.
-    </div>
-  </div>
-  <div v-click="3" class="framework-card selected-framework">
-    <div class="framework-name">stdexec</div>
-    <strong>The committee chose this model</strong>
-    <span>P2300 sender/receiver became C++26 <code>std::execution</code>; stdexec is its reference implementation.</span>
-    <div v-click="4" class="framework-hesitation framework-tradeoff">
-      <b>The price</b>
-      Sender/receiver is harder to learn and considerably more template-heavy.
-    </div>
-  </div>
-</div>
-
-<div v-click="5" class="framework-shared-gap">
-  <strong>Shared plug-in gap:</strong> none of these libraries knows about the host-owned message thread. Every option needs a plug-in-specific integration layer.
-</div>
-
----
-
-# Why I ended up with <code>stdexec</code>
-
-<div class="stdexec-choice-layout">
-<div class="stdexec-orchestration">
-
-```cpp
-MainActorTask<void> loadPreset(...) {
-    auto bytes = co_await readPreset(...);
-    auto tree = co_await prepareSamplerTree(bytes);
-
-    sampler.installSamplerTree(tree);
-}
-```
-
-</div>
-<div class="stdexec-stack">
-  <div v-click="1" class="standards-winner"><strong>It won.</strong><span><a href="https://wg21.link/P2300">P2300</a> sender/receiver became C++26 <code>std::execution</code>.</span></div>
-  <div v-click="4" class="stdexec-layer coroutine-layer"><strong>Coroutine tasks</strong><span>Readable orchestration</span></div>
-  <div v-click="3" class="stdexec-layer affine-layer"><strong>stdexec-affine</strong><span>Sticky main-thread resumption · root ownership · synchronous teardown</span></div>
-  <div v-click="2" class="stdexec-layer sender-layer"><strong>stdexec</strong><span>Reference implementation · senders · schedulers · stop environments</span></div>
-</div>
-</div>
-
-<div v-click="5" class="stdexec-operation-flow">
-  <span>senders implement individual operations</span>
-  <b>→</b>
-  <span>coroutines express the workflow</span>
-</div>
-
-<div v-click="6" class="takeaway">The deciding factor was direction: build the plug-in-specific affinity layer on the execution model C++26 chose.</div>
-
----
-
-# It’s just <code>stdexec::task</code>
-
-```cpp
-struct MainEnv {
-    using start_scheduler_type = MainThreadLoop::Scheduler;
-};
-
-template <class T>
-using MainActorTask = stdexec::task<T, MainEnv>;
-```
-
-<div v-click>
-
-```cpp
-stdexec::sync_wait(loadPreset(preset));
-```
-
-<p class="muted">✗ does not compile</p>
-
-</div>
-
-<div v-click>
-
-```cpp
-co_await stdexec::schedule(workers);
-```
-
-<p class="muted">→ straight back on Main</p>
-
-</div>
+<CallStacks scenario="forgotHop" :step="$clicks" />
 
 <!--
-three lines · the rest is C++26 std::execution::task
+same code, RAII style · minus the way back
 
-the type names the scheduler → you can read "Main" off the signature
+[click] worker builds the tree · fine so far
 
-[click] no main scheduler around → compile error (ugly message, but it refuses)
+[click] install() on the worker · Main paints the sampler → race
 
-[click] gotcha: affine means EVERY co_await comes home · heavy work goes into a child (starts_on)
+[click] scope ends on the worker → finish runs there · setLoading(false) off main · no line shows it
+
+[click] frame destroyed on the worker
 -->
 
----
-
-# The way home can’t fail
-
-<div class="code-compare">
-<div>
-
-<div class="eyebrow">MainThreadLoop today</div>
-
-```cpp
-using completion_signatures =
-    stdexec::completion_signatures<
-        stdexec::set_value_t(),
-        stdexec::set_stopped_t()>;
-```
-
-</div>
-<div v-click>
-
-<div class="eyebrow">What stdexec::task needs</div>
-
-```cpp
-using completion_signatures =
-    stdexec::completion_signatures<
-        stdexec::set_value_t()>;
-```
-
-</div>
-</div>
-
-<!--
-schedule() = "get me onto this thread" · today the hop itself can end in stopped
-
-[click] infallible: the hop home always arrives
-
-→ otherwise: work finished, result exists, coroutine silently never continues
-
-→ cancellation still works — the awaited work can stop, only the way home can't
-
-→ "loop never drains" is a lifetime problem → finish() / scope join
--->
-
----
-
-# Excellent. The abstractions will save us.
-
-<div class="framework-confidence-grid">
-  <div v-click="1"><strong>Execution</strong><span>explicit schedulers</span></div>
-  <div v-click="1"><strong>Ownership</strong><span>structured task scopes</span></div>
-  <div v-click="1"><strong>Affinity</strong><span>sticky main-thread tasks</span></div>
-  <div v-click="1"><strong>Cancellation</strong><span>cooperative stop propagation</span></div>
-</div>
-
-<div v-click="2" class="framework-confidence-punchline">C++ is still C++.</div>
-
----
-
-# Footgun #1: one harmless refactor
-
-<div class="capture-refactor-lead">
-
-```cpp
-auto myResource = Object{};
-```
-
-</div>
-
-<div class="code-compare capture-refactor-compare">
-<div class="capture-variant safe-capture-variant">
-
-<div class="eyebrow">Directly awaited</div>
-
-```cpp
-co_await [myResource]() -> Task {
-    co_await something();
-    useResource(myResource);
-}();
-```
-
-<div v-click="1" class="capture-caption safe-caption">The closure temporary survives until this full expression finishes.</div>
-
-</div>
-<div v-click="2" class="capture-variant broken-capture-variant">
-
-<div class="eyebrow">Stored first</div>
-
-```cpp
-auto task = [myResource]() -> Task {
-    co_await something();
-    useResource(myResource);
-}();
-
-co_await std::move(task);
-```
-
-<div class="capture-caption broken-caption">The first full expression ends before the task is awaited. The closure dies there.</div>
-
-</div>
-</div>
-
-<div v-click="3" class="capture-lifetime-flow">
-  <span>capture lives in closure</span><b>→</b><span>coroutine frame keeps <code>this</code></span><b>→</b><span class="dead-closure">dangling closure pointer</span>
-</div>
-
-<div v-click="4" class="llm-footgun">LLMs ALWAYS get this wrong: “capture by value copied it into the coroutine frame.” Nope. 👋</div>
-
----
-
-# Put coroutine state in coroutine parameters
-
-<div class="code-compare coroutine-parameter-fix">
-<div>
-
-```cpp
-auto task = [](Object resource) -> Task {
-    co_await something();
-    useResource(resource);
-}(std::move(myResource));
-
-co_await std::move(task);
-```
-
-</div>
-<div class="parameter-frame-flow">
-  <div v-click="1"><code>myResource</code><span>call argument</span></div>
-  <b v-click="2">→</b>
-  <div v-click="2" class="frame-owned-parameter"><code>resource</code><span>coroutine parameter copied into frame</span></div>
-  <b v-click="3">✓</b>
-</div>
-</div>
-
-<div v-click="4" class="takeaway">A capture belongs to the callable object. A coroutine parameter belongs to the coroutine frame.</div>
-
----
-
-# Footgun #2: RAII works a little too well
-
-<div class="code-compare lock-footgun-compare">
-<div class="lock-footgun-broken">
-
-<div class="eyebrow">Ordinary scoped lock</div>
-
-```cpp
-ScopedLock lock(stateMutex);
-auto mixer = app.mixerSnapshot();
-
-auto tree = co_await
-    prepareSamplerTree(preset, mixer);
-
-sampler.installSamplerTree(std::move(tree));
-```
-
-<div v-click="1" class="lock-held-caption">The coroutine scope survives suspension. So does the lock.</div>
-
-<div v-click="2" class="lock-consequences">
-  <span>other work blocks</span>
-  <span>suspension can last arbitrarily long</span>
-  <span>resumption may happen on another thread</span>
-</div>
-
-</div>
-<div v-click="3" class="lock-footgun-fixed">
-
-<div class="eyebrow">Snapshot, release, then await</div>
-
-```cpp
-MixerSnapshot mixer;
-{
-    ScopedLock lock(stateMutex);
-    mixer = app.mixerSnapshot();
-}
-
-auto tree = co_await
-    prepareSamplerTree(preset, mixer);
-
-{
-    ScopedLock lock(stateMutex);
-    sampler.installSamplerTree(std::move(tree));
-}
-```
-
-</div>
-</div>
-
-<div v-click="4" class="takeaway">RAII spans suspension. Never suspend while holding an ordinary blocking or thread-owned lock.</div>
-
----
-
-# Footgun #3: sometimes the frame itself is broken
-
-<div class="code-compare cobalt-footgun-layout">
-<div>
-
-<div class="eyebrow">Our Windows-only Boost.Cobalt patch</div>
-
-```cpp
-#ifdef _MSC_VER
-#define COBALT_PROMISE_ALIGN alignas(32)
-#else
-#define COBALT_PROMISE_ALIGN
-#endif
-
-template<class Return>
-struct COBALT_PROMISE_ALIGN task_promise
-    : promise_memory_resource_base,
-      /* ... */
-{};
-```
-
-</div>
-<div class="cobalt-bug-story">
-  <div v-click="1"><strong>The symptom</strong><span>Release-only access violations on MSVC when returning particular object layouts from <code>cobalt::task&lt;T&gt;</code>.</span></div>
-  <div v-click="2"><strong>The workaround</strong><span>Patch Cobalt’s promise type to <code>alignas(32)</code> while Conan generates the Windows build.</span></div>
-  <div v-click="3"><strong>The state in August 2026</strong><span><a href="https://github.com/boostorg/cobalt/issues/172">boostorg/cobalt#172</a> is still open; current <code>task_promise</code> remains unannotated.</span></div>
-</div>
-</div>
-
-<div v-click="4" class="takeaway">Sometimes the lifetime model is fine and the compiler-generated frame still falls through the floor.</div>
-
----
-
-# Three footguns. Three different layers.
-
-<div class="footgun-summary-grid">
-  <div v-click="1"><strong>Outside the frame</strong><span>The lambda capture died with its closure.</span></div>
-  <div v-click="2"><strong>Inside the frame too long</strong><span>The lock survived across suspension.</span></div>
-  <div v-click="3"><strong>The frame itself</strong><span>MSVC needed stronger promise alignment.</span></div>
-</div>
-
-<div v-click="4" class="takeaway">Frameworks remove repeated control-flow plumbing. They do not repeal C++ lifetime rules - or compiler bugs.</div>

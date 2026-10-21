@@ -243,7 +243,7 @@ body,
 }
 
 .deep-callback-bug .bug-link {
-  top: 9.75rem;
+  top: 8.9rem;
 }
 
 .thought-actual {
@@ -1615,7 +1615,7 @@ body,
 }
 
 .structured-celebration-code pre {
-  font-size: 0.63rem !important;
+  font-size: 0.83rem !important;
   line-height: 1.13 !important;
 }
 
@@ -1672,7 +1672,7 @@ body,
 }
 
 .root-task-problem pre {
-  font-size: 0.67rem !important;
+  font-size: 0.83rem !important;
   line-height: 1.22 !important;
 }
 
@@ -1730,7 +1730,7 @@ body,
 }
 
 .root-scope-slide pre {
-  font-size: 0.65rem !important;
+  font-size: 0.83rem !important;
   line-height: 1.2 !important;
 }
 
@@ -1876,7 +1876,7 @@ body,
 }
 
 .close-request-call pre {
-  font-size: 0.9rem !important;
+  font-size: 0.83rem !important;
   text-align: center;
 }
 
@@ -1943,7 +1943,7 @@ body,
 }
 
 .cooperative-code pre {
-  font-size: 0.67rem !important;
+  font-size: 0.83rem !important;
   line-height: 1.2 !important;
 }
 
@@ -2035,7 +2035,7 @@ body,
 }
 
 .cancellation-exit-code pre {
-  font-size: 0.61rem !important;
+  font-size: 0.83rem !important;
   line-height: 1.12 !important;
 }
 
@@ -2133,6 +2133,7 @@ body,
   background: #191919;
   border: 1px solid var(--slide-line);
   border-radius: 0.62rem;
+  align-content: start;
   display: grid;
   gap: 0.42rem;
   padding: 0.8rem;
@@ -2208,6 +2209,11 @@ body,
   gap: 1rem;
   grid-template-columns: 1.05fr 0.95fr;
   margin-top: 0.75rem;
+}
+
+.stdexec-choice-layout.stdexec-stack-only {
+  grid-template-columns: minmax(0, 40rem);
+  justify-content: center;
 }
 
 .stdexec-orchestration pre {
