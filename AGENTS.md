@@ -7,7 +7,7 @@ The synchronous opening version is intentionally the only correct implementation
 Every attempted callback-based “improvement” must remain subtly wrong. The escalation is:
 
 1. Move work off main, but mutate the sampler from the worker and race main.
-2. Restore ordering and main-thread affinity, but leave the synchronous `ScopeExit` armed. The function reports completion immediately, then the callback reports it again.
+2. Restore ordering and main-thread affinity, but leave the synchronous `ScopeExit` armed. The function reports completion and hides the spinner immediately; the callback installs the tree later, silently, and nothing refreshes the UI.
 3. Fix premature completion by deleting the scope guard and completing manually inside the callback. The happy path works, but RAII and automatic exceptional cleanup are gone.
 4. Add the asynchronous missing-sample dialog as nested completion callbacks. Cancelling the dialog takes a normal-looking `return` from the inner callback without completing, so the spinner stays forever. QA finds it in the last round. This is the final callback bug before taking a breath and exploring coroutines; the coroutine version later has the same early return, and there it is correct.
 5. Finally use a coroutine. Its scope survives suspension, restoring structured programming so the original sequential structure and deferred completion become correct again.
