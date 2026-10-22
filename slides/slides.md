@@ -11,7 +11,7 @@ background: /title-card.png
 
 ---
 
-# Lets load some data!
+# Let's load some data!
 
 ```cpp
 void loadPreset(...) {
@@ -53,7 +53,8 @@ Code in there since ages
 # QA, round one
 
 <div class="chat-stack">
-  <ChatMessage v-click from="QA">Loading gives met the spinning wheel of death for about 2 seconds! </ChatMessage>
+  <ChatMessage v-click from="Developer">Quick test?</ChatMessage>
+  <ChatMessage v-click from="QA">Loading gives me the spinning wheel of death for about 2 seconds!</ChatMessage>
   <ChatMessage v-click from="Developer">Hm OK ...  Don't worry ...</ChatMessage>
   <ChatMessage v-click from="Developer">I know about THREADS!</ChatMessage>
 </div>
@@ -683,7 +684,7 @@ task<void> loadPreset(...) {
 - How do I get from `void` to `task<void>`
 - How do I cancel obsolete work
 - How do I safely tear down the whole thing
-- Which libraries are out there to get my hands dirty
+- Which libraries are out there to get my hands dirty with
 
 </v-clicks>
 </div>
