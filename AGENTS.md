@@ -16,7 +16,7 @@ Every attempted callback-based “improvement” must remain subtly wrong. The e
 
 The humor comes from developer overconfidence colliding with QA’s calm, concrete observations. Keep the developer defensive, literal, and prematurely ready to ship. Keep QA concise and increasingly specific.
 
-Every QA testing round begins with the developer explicitly asking QA to test the latest fix. Start breezily confident, then make each request more terse and frustrated until the final “test it one last time, then ship it.”
+Round one is unprompted: after years of the old code, QA complains on their own. Every later QA testing round begins with the developer explicitly asking QA to test the latest fix. Start breezily confident, then make each request more terse and frustrated until the final “test it one last time, then ship it.”
 
 Always preserve this order:
 
@@ -51,8 +51,8 @@ Speaker notes:
 - Write cues, not a script: short keywords and arrows ("spawn → frame on heap, nothing ran yet"), one line per click.
 - Use one `[click]` marker per click so presenter view highlights the current cue; keep markers in sync with the slide's click count.
 - Notes must say more than the screen, never the same thing.
-- Exception: from "Why are coroutines non-blocking?" to the end of the main talk, the notes are the full spoken
-  script instead of cues, one `[click]` block per click. Plain spoken sentences, short, in the speaker's own voice. No
+- Exception: the opening (title through "What actually changed?") and everything from "Why are coroutines non-blocking?" to
+  the end of the main talk have the full spoken script instead of cues, one `[click]` block per click. Plain spoken sentences, short, in the speaker's own voice. No
   em dashes, no polished phrases ("with a twist").
 - Stage directions are welcome: "**PAUSE**", "beat", "(don't point at the return yet)".
 

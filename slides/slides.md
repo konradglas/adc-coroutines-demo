@@ -9,6 +9,10 @@ mdc: true
 background: /title-card.png
 ---
 
+<!--
+Hello, and welcome to my talk: std::future is not the future.
+-->
+
 ---
 
 # About me
@@ -20,20 +24,20 @@ background: /title-card.png
     <p class="takeaway"><code>co_await</code> everywhere ❤️ <span class="muted">(mostly)</span></p>
   </div>
   <div v-click>
-    <h3>VSL Synchron Player · main thread</h3>
+    <h3>Sample players · main thread</h3>
     <p>GUI · host callbacks · plugin state</p>
     <p class="takeaway"><code>co_await</code> here? 🤔</p>
   </div>
 </div>
 
 <!--
-Samplers background
+Quickly about me. I've been working a lot on the MuseSampler, for MuseScore.
+A big part of that is rendering AI instruments. So there's a lot of networking going on: logins, authentication flows, fetching stuff from the internet.
+That's how I stumbled into coroutines, with Asio. And now I use them basically everywhere. (beat) Mostly.
 
-MuseSampler: lots of network → AI instrument rendering, auth flows
-coroutines there = happy → fell in love… well, something like that (beat)
-
-[click] VSL Synchron Player → what would it take to do this *properly* in a plugin?
-→ main thread, GUI, host callbacks → that's this talk
+[click]
+But I also build sample players and other plugins. And those have a main thread: the GUI, host callbacks, plugin state.
+So I asked myself: can I use coroutines there too? Right on the main thread? (beat) Let's try.
 -->
 
 ---
@@ -62,16 +66,12 @@ void loadPreset(...) {
 <div v-click class="takeaway">Correct. Sequential. Scope-bound. And running entirely on main. 👍</div>
 
 <!--
+Here's a concrete example: loading a preset.
+Set the loading flag. Load the mixer state. Prepare the sampler tree, install it. And a ScopeExit turns the spinner off at the end, whatever happens.
+This code has been running for years. But over the years, things got more complex. Bigger presets, more and more license checks.
 
-Normal loading flow.
-
-Loading flag set
-
-Sampler Loads data
-
-Code in there since ages
-
-[click] all correct… all on main
+[click]
+But it's still correct. It's sequential, it's scope-bound, and it runs entirely on Main.
 -->
 
 ---
@@ -79,22 +79,22 @@ Code in there since ages
 # QA, round one
 
 <div class="chat-stack">
-  <ChatMessage v-click from="Developer">Quick test?</ChatMessage>
-  <ChatMessage v-click from="QA">Loading gives me the spinning wheel of death for about 2 seconds!</ChatMessage>
+  <ChatMessage v-click from="QA">Loading gives me the spinning wheel of death!</ChatMessage>
   <ChatMessage v-click from="Developer">Hm OK ...  Don't worry ...</ChatMessage>
   <ChatMessage v-click from="Developer">I know about THREADS!</ChatMessage>
 </div>
 
 <!--
-proud, breezy
+So this code has been fine for years. Nobody asked QA to test anything.
 
-[click] "quick test?"
+[click]
+And then one day, QA comes with a little complaint: loading gives me the spinning wheel of death. (beat)
 
-[click] QA: works · 2 s spinner
+[click]
+Hm, OK. Don't worry. With bigger presets, this starts to hang the main thread.
 
-[click] With larger presets this is starting to hang the main thread!
-
-[click] THREADS! — beat
+[click]
+But I know about THREADS! (beat)
 -->
 
 ---
@@ -114,13 +114,16 @@ app.notifyPresetLoaded();
 <div v-click class="takeaway">Same sequence, less blocking. Ship it.</div>
 
 <!--
-slow line → worker
+Easy. Move the slow line away.
 
-[click] off main
+[click]
+We hand it over to a worker thread. It runs off Main: it builds the sampler tree there, and installs it on the sampler.
 
-[click] rest on main
+[click]
+And the rest stays on Main.
 
-[click] ship it
+[click]
+Awesome. Same sequence, less blocking. Ship it.
 -->
 
 ---
@@ -137,17 +140,23 @@ slow line → worker
     Sometimes some part of the old preset is still in there.<br>
     And sometimes it plainly crashes.
   </ChatMessage>
-  <ChatMessage v-click from="Developer">LIES!</ChatMessage>
+  <ChatMessage v-click from="Developer">LIES! Must be your machine.</ChatMessage>
 </div>
 
 <!--
-[click] "try it now"
+(confident)
 
-[click] weird…
+[click]
+Fixed. Try it now.
 
-[click] let it land
+[click]
+Uh-oh. This is weird…
 
-[click] LIES!
+[click]
+Sometimes it looks fine. Sometimes part of the old preset is still in there. And sometimes it just crashes. (let it land)
+
+[click]
+And I react the way everyone would: I deny it. (beat) Lies! There must be something wrong with your machine.
 -->
 
 ---
@@ -205,16 +214,23 @@ keySwitches.load(preset);
 </div>
 
 <!--
-[click] load…
+So, let's look at it again. (beat) Maybe QA was right.
 
-[click] only the preset? · sampler inside
+[click]
+Here's what I assumed: keySwitches.load() only needs the preset. Nothing else.
 
-[click] worker: whenever
+[click]
+But it reads the sampler's tree. The one the worker installs.
 
-[click] main: at once 🏎️
+[click]
+And the worker installs that tree… whenever. Whenever it's done building.
 
-[click] stale or UB
-→ order was the dependency
+[click]
+Main doesn't wait. It loads the key switches right away, and reports the preset as loaded. So now they race.
+
+[click]
+Either Main reads the old tree: that's the old preset QA saw. Or both touch it at the same time: undefined behaviour. That's the crash.
+(beat) The order of the lines was the dependency. And I moved it away.
 -->
 
 ---
@@ -241,11 +257,16 @@ workers.run([&, preset, mixer] {
 <div v-if="$clicks >= 3" class="takeaway">Ordering restored. Main-thread affinity restored. Ship it 🚢</div>
 
 <!--
-[click] post to main
+Alright, let's restore that order. We can dispatch to Main, right?
 
-[click] in order, on main
+[click]
+prepareSamplerTree still runs on the worker thread. Otherwise this wouldn't make any sense.
 
-[click] ship 🚢
+[click]
+And once it's done, we post back to Main. Install the tree, then load the key switches. In that order, on Main.
+
+[click]
+Order restored. Everything runs in sequence again. Nice! Ship it!
 -->
 
 ---
@@ -262,11 +283,16 @@ workers.run([&, preset, mixer] {
 </div>
 
 <!--
-[click] "all fixed"
+(breezy)
 
-[click] spinner gone, UI stale
+[click]
+All right. All fixed. Can you test it again?
 
-[click] fast now!
+[click]
+The spinner disappears immediately. But the UI doesn't refresh with the new state.
+
+[click]
+(proud) So it's fast now! (beat)
 -->
 
 ---
@@ -327,19 +353,26 @@ workers.run([&, preset, mixer] {
 <span v-click="6" style="display: none"></span>
 
 <!--
-ScopeExit still armed
+Oh no. What did I do? (beat)
+I left something in there: the ScopeExit. The RAII guard that's supposed to cover the whole load.
 
-[click] run() returns
+[click]
+workers.run() hands the work to the worker, and returns immediately. On Main.
 
-[click] done too early
+[click]
+So the function ends, and the ScopeExit fires. It reports the preset as loaded and turns the spinner off. Way too early.
 
-[click] silent install
+[click]
+The worker installs the tree later. Silently. Nobody tells the UI.
 
-[click] RAII… :(
+[click]
+RAII is so nice. But I can't use it here.
 
-[click] complete by hand
+[click]
+Fine. Then I complete it manually, inside the callback. (sigh) Not so nice.
 
-[click] exceptions: nobody cleans
+[click]
+The happy path works again. But RAII is gone: if anything in there throws, nobody turns the spinner off.
 -->
 
 ---
@@ -360,11 +393,16 @@ ScopeExit still armed
 </div>
 
 <!--
-[click] locate samples?
+Okay. But at least it seems to work now. (beat)
 
-[click] dialog, then load
+[click]
+And then QA asks for one nice thing: when samples are missing, could we let the user locate them?
 
-[click] feature list 👍
+[click]
+Hm. That doesn't look trivial. First wait for another asynchronous file dialog. Then load the samples, away from Main. In yet another callback.
+
+[click]
+Good idea. Let's put it on the feature request list. (beat)
 -->
 
 ---
@@ -394,14 +432,17 @@ prepareSamplerTreeAsync(..., [&](auto tree) {
 ```
 
 <!--
-tries anyway
+But then I try it anyway. Because why not, right? It can't be that hard.
 
-[click] tree
+[click]
+We build the sampler tree, and give it a completion handler: install the tree, load the key switches.
 
-[click] dialog (not the return)
+[click]
+Inside that handler, another one: ask the user to locate the samples. If there's no location, we return. Obviously. (don't linger on the return)
 
-[click] samples · complete
-→ three nested scopes
+[click]
+Otherwise, load the samples asynchronously, and complete inside that third callback.
+(beat) Looks actually fine.
 -->
 
 ---
@@ -447,14 +488,20 @@ prepareSamplerTreeAsync(..., [&](auto tree) {
 </div>
 
 <!--
-[click] one last time — frustrated
+(frustrated)
 
-[click] cancel → spinner forever
+[click]
+That's it?? Fine. Test it one last time. Then we ship it. Come on, it's Friday.
 
-[click] the code
+[click]
+When I cancel the file dialog, the spinner stays forever.
 
-[click] on · never off 🐛
-→ every return must remember
+[click]
+What did I do? (beat)
+
+[click]
+Right. There's the bug. The spinner goes on up here. If the user cancels, I return. And nothing turns it off.
+I'd have to reset that state by hand. And I forgot. Again.
 -->
 
 ---
@@ -474,9 +521,11 @@ notify
 <div v-click class="takeaway">It looks pretty simple! But it's blocking ...</div>
 
 <!--
-just the steps
+All right. Deep breath. (beat)
+It doesn't look that hard, does it? Prepare the tree. Install the tree. Load the key switches. Ask the user for the missing samples. Load the samples. Install them. Notify.
 
-[click] but blocking
+[click]
+It looks so simple. The only problem: it's blocking.
 -->
 
 ---
@@ -573,11 +622,13 @@ task<void> loadPreset(App& app, Sampler& sampler,
 <span v-click="2" style="display: none"></span>
 
 <!--
-sync: correct, blocking
+Here's our synchronous version from the beginning. Correct, but blocking.
 
-[click] same shape
+[click]
+So what if we could keep exactly that shape, but with co_await? It still looks the same. But it doesn't block.
 
-[click] new feature, still linear
+[click]
+And the new feature QA asked for? Just a few more lines. In the same order. Not really a problem anymore.
 -->
 
 ---
@@ -633,15 +684,22 @@ keySwitches.load(preset);
 </div>
 
 <!--
-[click] only co_await
+So let's have a quick look at what this funny syntax actually gives us back.
 
-[click] same order as the sync version
+[click]
+The only difference: co_await.
 
-[click] locals carry the data → dependencies stay visible
+[click]
+We still have the sequential order. It looks exactly the same.
 
-[click] ScopeExit still fires at the end
+[click]
+All the dependencies between the lines are plainly visible.
 
-[click] and main stays free → QA round one's spinner, gone (beat)
+[click]
+And we get RAII back. The ScopeExit fires at the end again, when the work is really done.
+
+[click]
+And it's not blocking. No more spinning wheel of death. (beat)
 -->
 
 ---
@@ -684,11 +742,16 @@ task<void> loadPreset(...) {
 </div>
 
 <!--
-[click] start, end, resume
+Okay. Let's have another look at what actually changed between the two versions.
 
-[click] may suspend · not blocking
+[click]
+The return type. We don't have void anymore, we have task<void>. And task defines how this coroutine starts, how it ends, and how it resumes.
 
-[click] RAII still runs
+[click]
+At co_await, it may suspend. But it doesn't block.
+
+[click]
+And co_return is just the return you use in a coroutine. RAII still runs.
 -->
 
 ---
