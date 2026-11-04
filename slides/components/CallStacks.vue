@@ -76,7 +76,7 @@ watchEffect(async () => {
       </div>
     </div>
 
-    <div class="cs-columns" :class="{ single: !right }">
+    <div class="cs-columns" :class="{ single: !right, solo: !right && current.hideHeap }">
       <div v-for="thread in [left]" :key="thread" class="cs-thread">
         <div class="cs-head">
           <span>{{ thread }} stack</span>
@@ -88,7 +88,7 @@ watchEffect(async () => {
         </div>
       </div>
 
-      <div class="cs-heap">
+      <div v-if="!current.hideHeap" class="cs-heap">
         <div class="cs-head"><span>Coroutine frame (heap)</span></div>
         <div class="cs-heap-body">
           <p v-if="!active.heap.length" class="cs-empty">{{ current.heapEmpty ?? 'none yet' }}</p>
@@ -120,11 +120,11 @@ watchEffect(async () => {
 
 <style scoped>
 .callstacks {
-  --cs-orange: #d8976b;
-  --cs-orange-soft: rgba(216, 151, 107, 0.16);
-  --cs-teal: #69b4a5;
-  --cs-teal-soft: rgba(105, 180, 165, 0.14);
-  --cs-red: #e07a6f;
+  --cs-orange: #fe4f00;
+  --cs-orange-soft: rgba(254, 79, 0, 0.16);
+  --cs-teal: #9b6bff;
+  --cs-teal-soft: rgba(155, 107, 255, 0.14);
+  --cs-red: #ff4fa8;
   --cs-mono: "SF Mono", Menlo, Consolas, monospace;
   display: grid;
   gap: 0.9rem;
@@ -197,6 +197,10 @@ watchEffect(async () => {
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
 }
 
+.cs-columns.solo {
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+}
+
 .cs-head {
   align-items: baseline;
   color: var(--slide-muted);
@@ -218,7 +222,7 @@ watchEffect(async () => {
 .cs-status.idle { background: #222; color: var(--slide-muted); }
 .cs-status.busy { background: #222; color: var(--slide-fg); }
 .cs-status.running { background: var(--cs-orange-soft); color: var(--cs-orange); }
-.cs-status.blocked { background: rgba(224, 122, 111, 0.18); color: var(--cs-red); }
+.cs-status.blocked { background: rgba(255, 79, 168, 0.18); color: var(--cs-red); }
 
 .cs-stack {
   display: flex;
@@ -243,11 +247,11 @@ watchEffect(async () => {
 .cs-frame.pad { background: transparent; border-color: transparent; }
 .cs-frame.loop { color: #8a8a8a; }
 .cs-frame.wait { border-style: dashed; color: #8a8a8a; font-style: italic; }
-.cs-frame.executor { border-color: rgba(105, 180, 165, 0.45); color: var(--cs-teal); }
-.cs-frame.resume { background: var(--cs-teal-soft); border-color: var(--cs-teal); color: #bdd4ce; }
-.cs-frame.body { background: var(--cs-orange-soft); border-color: var(--cs-orange); color: #f2c1ae; font-weight: 600; }
+.cs-frame.executor { border-color: rgba(155, 107, 255, 0.45); color: var(--cs-teal); }
+.cs-frame.resume { background: var(--cs-teal-soft); border-color: var(--cs-teal); color: #d6c6ff; }
+.cs-frame.body { background: var(--cs-orange-soft); border-color: var(--cs-orange); color: #ffb58f; font-weight: 600; }
 .cs-frame.call { color: var(--slide-fg); }
-.cs-frame.block { background: rgba(224, 122, 111, 0.16); border-color: var(--cs-red); color: #f0b3ab; font-weight: 600; }
+.cs-frame.block { background: rgba(255, 79, 168, 0.16); border-color: var(--cs-red); color: #ffb3d9; font-weight: 600; }
 
 .cs-heap {
   display: flex;

@@ -19,7 +19,7 @@ const shapes = [
   {
     name: 'Event',
     how: 'no loop · resumed inline',
-    frames: ['AwaitableValue::setValue()', 'Plugin::onLibraryIndexed()', 'postedCallback()'],
+    frames: ['AwaitableValue::setValue()', 'Plugin::onDownloadFinished()', 'postedCallback()'],
   },
 ]
 const depth = Math.max(...shapes.map(s => s.frames.length))
@@ -74,8 +74,8 @@ const depth = Math.max(...shapes.map(s => s.frames.length))
   white-space: nowrap;
 }
 
-.ss-frame.body { background: rgba(216, 151, 107, 0.16); border-color: #d8976b; color: #f2c1ae; font-weight: 600; }
-.ss-frame.resume { background: rgba(105, 180, 165, 0.14); border-color: #69b4a5; color: #bdd4ce; }
+.ss-frame.body { background: rgba(254, 79, 0, 0.16); border-color: #fe4f00; color: #ffb58f; font-weight: 600; }
+.ss-frame.resume { background: rgba(155, 107, 255, 0.14); border-color: #9b6bff; color: #d6c6ff; }
 .ss-frame.bottom { color: #a5a5a5; }
 .ss-frame.pad { background: transparent; border-color: transparent; }
 

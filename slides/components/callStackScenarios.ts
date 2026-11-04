@@ -32,6 +32,7 @@ export interface CallStackScenario {
   code: string[];
   threads: [string] | [string, string];
   heapEmpty?: string;
+  hideHeap?: boolean;
   steps: CallStackStep[];
 }
 
@@ -54,23 +55,21 @@ const workerLoop = ["executor|ThreadPool::run()", "loop|thread_start()"];
 
 export const scenarios: Record<string, CallStackScenario> = {
   blocking: {
-    threads: ["Main", "Worker"],
-    heapEmpty: "none: every local lives on Main’s stack",
+    threads: ["Main"],
+    hideHeap: true,
     code: [
       "void loadPreset(Preset preset) {",
       "  app.setLoading(true);",
-      "  auto tree = workers.submit([&] {",
-      "    return buildSamplerTree(preset);",
-      "  }).get();",
+      "  auto tree = buildSamplerTree(preset);",
       "  sampler.install(tree);",
       "  app.setLoading(false);",
       "}",
     ],
     steps: [
       {
-        label: "Two idle loops",
-        caption: "Two threads, both idle in their loops.",
-        threads: { Main: mainIdle, Worker: workerIdle },
+        label: "Main idle in its loop",
+        caption: "Main waits for events in its loop.",
+        threads: { Main: mainIdle },
         heap: [],
       },
       {
@@ -79,33 +78,29 @@ export const scenarios: Record<string, CallStackScenario> = {
         caption: "A click calls loadPreset() on Main.",
         threads: {
           Main: ["call|loadPreset()", "call|onLoadClicked()", ...mainLoop],
-          Worker: workerIdle,
         },
         heap: [],
       },
       {
-        line: 5,
-        label: "Main is stuck in get()",
-        caption:
-          "The worker builds the tree. Main is parked in get(): no events, no painting.",
+        line: 3,
+        label: "Main builds the tree itself",
+        caption: "Main runs buildSamplerTree() itself: no events, no painting.",
         threads: {
           Main: [
-            "block|future::wait()",
+            "call|buildSamplerTree()",
             "call|loadPreset()",
             "call|onLoadClicked()",
             ...mainLoop,
           ],
-          Worker: ["call|buildSamplerTree()", "call|lambda()", ...workerLoop],
         },
         heap: [],
       },
       {
-        line: 6,
+        line: 4,
         label: "Main gets its stack back",
-        caption: "Only when the worker is done does Main get its stack back.",
+        caption: "Only when the tree is built does Main get its stack back.",
         threads: {
           Main: ["call|loadPreset()", "call|onLoadClicked()", ...mainLoop],
-          Worker: workerIdle,
         },
         heap: [],
       },
@@ -268,30 +263,30 @@ export const scenarios: Record<string, CallStackScenario> = {
 
   callbacks: {
     threads: ["Main"],
-    heapEmpty: "none: _license and _library are members",
+    hideHeap: true,
     code: [
       "void enableInstrument() {",
-      "  if (!_license || !_library) return;",
-      "  instrument.enable(*_license, *_library);",
+      "  if (!_license || !_samples) return;",
+      "  instrument.enable(*_license, *_samples);",
       "}",
       "void onLicenseActivated(License l) override {",
       "  _license = l; enableInstrument();",
       "}",
-      "void onLibraryIndexed(Library lib) override {",
-      "  _library = lib; enableInstrument();",
+      "void onDownloadFinished(Samples s) override {",
+      "  _samples = s; enableInstrument();",
       "}",
     ],
     steps: [
       {
         label: "Both arrive later, in any order",
-        caption: "Async doesn’t mean “run on another thread”: the license and the indexed library just arrive later, in any order.",
+        caption: "Async doesn’t mean “run on another thread”: the license and the sample download just arrive later, in any order.",
         threads: { Main: mainIdle },
         heap: [],
       },
       {
         line: 2,
         label: "License first → return",
-        caption: "The license arrives first. enableInstrument() checks: no library yet, return.",
+        caption: "The license arrives first. enableInstrument() checks: no samples yet, return.",
         threads: {
           Main: [
             "call|enableInstrument()",
@@ -305,13 +300,13 @@ export const scenarios: Record<string, CallStackScenario> = {
       },
       {
         line: 3,
-        label: "Library arrives → enable",
-        caption: "The indexed library arrives. Both are there, so the instrument is enabled on Main, inside the callback.",
+        label: "Download finishes → enable",
+        caption: "The download finishes. Both are there, so the instrument is enabled on Main, inside the callback.",
         threads: {
           Main: [
             "call|Instrument::enable()",
             "call|enableInstrument()",
-            "call|Plugin::onLibraryIndexed()",
+            "call|Plugin::onDownloadFinished()",
             "loop|postedCallback()",
             "loop|NativeEventLoop::run()",
             "loop|main()",
@@ -332,15 +327,15 @@ export const scenarios: Record<string, CallStackScenario> = {
     threads: ["Main"],
     code: [
       "task<void> startInstrument() {",
-      "  auto [license, library] = co_await when_all(",
-      "      _license.value(), _library.value());",
-      "  instrument.enable(license, library);",
+      "  auto [license, samples] = co_await when_all(",
+      "      _license.value(), _samples.value());",
+      "  instrument.enable(license, samples);",
       "}",
       "void onLicenseActivated(License l) override {",
       "  _license.setValue(l);",
       "}",
-      "void onLibraryIndexed(Library lib) override {",
-      "  _library.setValue(lib);",
+      "void onDownloadFinished(Samples s) override {",
+      "  _samples.setValue(s);",
       "}",
     ],
     steps: [
@@ -369,7 +364,7 @@ export const scenarios: Record<string, CallStackScenario> = {
       {
         line: 7,
         label: "License arrives → still waiting",
-        caption: "The license arrives. when_all still needs the library, so setValue() just returns.",
+        caption: "The license arrives. when_all still needs the samples, so setValue() just returns.",
         threads: {
           Main: [
             "call|AwaitableValue::setValue()",
@@ -379,23 +374,23 @@ export const scenarios: Record<string, CallStackScenario> = {
             "loop|main()",
           ],
         },
-        heap: [{ name: "startInstrument", state: "suspended", note: "waiting for the library", locals: ["license"] }],
+        heap: [{ name: "startInstrument", state: "suspended", note: "waiting for the samples", locals: ["license"] }],
       },
       {
         line: [4, 10],
-        label: "Library arrives → resumed inline",
-        caption: "The library completes when_all. setValue() resumes the frame inline, on Main, inside the callback.",
+        label: "Download finishes → resumed inline",
+        caption: "The download completes when_all. setValue() resumes the frame inline, on Main, inside the callback.",
         threads: {
           Main: [
             "body|startInstrument() (resume)",
             "resume|handle.resume()",
             "call|AwaitableValue::setValue()",
-            "call|Plugin::onLibraryIndexed()",
+            "call|Plugin::onDownloadFinished()",
             "loop|postedCallback()",
             "loop|NativeEventLoop::run()",
           ],
         },
-        heap: [{ name: "startInstrument", state: "running", note: "inside onLibraryIndexed()", locals: ["license", "library"] }],
+        heap: [{ name: "startInstrument", state: "running", note: "inside onDownloadFinished()", locals: ["license", "samples"] }],
       },
       {
         label: "One function, top to bottom",
@@ -495,9 +490,8 @@ export const scenarios: Record<string, CallStackScenario> = {
         ],
       },
       {
-        label: "Note plays · stay real-time safe",
-        caption:
-          "The note plays in this very block. The catch: whatever resumes here must be real-time safe.",
+        label: "Note plays in this block",
+        caption: "The note plays in this very block. Conceptual: not real-time safe as written.",
         threads: {
           Main: mainIdle,
           "Audio thread": [
@@ -601,15 +595,17 @@ export const scenarios: Record<string, CallStackScenario> = {
   teardown: {
     threads: ["Main", "Worker"],
     code: [
-      "Plugin::~Plugin() {",
-      "  root.close_and_wait();",
+      "void root_scope::close_and_wait() {",
+      "  requestStop();",
+      "  while (!joined) {",
+      "    loop.drain();",
+      "    loop.sleepUntilPosted();",
+      "  }",
       "}",
       "",
       "MainActorTask<void> loadPreset(Preset preset) {",
       "  ScopeExit finish([&] { app.setLoading(false); });",
-      "  auto stop = co_await stdexec::read_env(stdexec::get_stop_token);",
-      "  auto samples = co_await loadSamples(preset);",
-      "  if (stop.stop_requested()) co_return;",
+      "  auto samples = co_await starts_on(workers, loadSamples(preset));",
       "  sampler.installSamples(samples);",
       "}",
     ],
@@ -620,6 +616,7 @@ export const scenarios: Record<string, CallStackScenario> = {
         caption: "The host destroys the plugin while a preset is still loading on the worker.",
         threads: {
           Main: [
+            "call|root.close_and_wait()",
             "call|Plugin::~Plugin()",
             "call|Host::destroyPlugin()",
             ...mainLoop,
@@ -638,13 +635,12 @@ export const scenarios: Record<string, CallStackScenario> = {
         ],
       },
       {
-        line: 2,
-        label: "Stop requested, Main waits",
-        caption: "close_and_wait() requests stop and waits for the join, inside the destructor.",
+        line: [2, 5],
+        label: "Stop, then drain or sleep",
+        caption: "close_and_wait() requests stop, then runs its own little loop: drain Main's queue, sleep until something is posted.",
         threads: {
           Main: [
-            "wait|condition.wait()",
-            "call|loop.sync_wait(root.join())",
+            "wait|loop.sleepUntilPosted()",
             "call|root.close_and_wait()",
             "call|Plugin::~Plugin()",
             "call|Host::destroyPlugin()",
@@ -665,13 +661,12 @@ export const scenarios: Record<string, CallStackScenario> = {
         ],
       },
       {
-        line: 8,
-        label: "Child done, posts parent home",
-        caption: "The child finishes and posts the parent's continuation onto Main's queue.",
+        line: 11,
+        label: "Child stops, posts \"stopped\" home",
+        caption: "loadSamples sees the stop, ends with just_stopped(), and the stopped signal is posted onto Main's queue. That wakes Main.",
         threads: {
           Main: [
-            "wait|condition.wait()",
-            "call|loop.sync_wait(root.join())",
+            "wait|loop.sleepUntilPosted()",
             "call|root.close_and_wait()",
             "call|Plugin::~Plugin()",
             "call|Host::destroyPlugin()",
@@ -680,39 +675,38 @@ export const scenarios: Record<string, CallStackScenario> = {
           ],
           Worker: [
             "executor|MainThreadLoop::post()",
-            "call|loadSamples() done",
+            "call|loadSamples(): just_stopped()",
             ...workerLoop,
           ],
         },
         status: { Main: "in ~Plugin()" },
         heap: [
-          { name: "loadPreset", state: "suspended", note: "in Main queue", locals: ["preset", "finish", "samples"] },
+          { name: "loadPreset", state: "suspended", note: "stopped · in Main queue", locals: ["preset", "finish"] },
           { name: "loadSamples", state: "done", note: "destroyed" },
         ],
       },
       {
-        line: [9, 6],
-        label: "Unwinds on top of ~Plugin()",
-        caption: "The join runs the posted continuation: stop seen, co_return, ScopeExit turns the spinner off, all on top of the destructor.",
+        line: [4, 10],
+        label: "drain() unwinds it on top of ~Plugin()",
+        caption: "drain() delivers the stopped signal: loadPreset is never resumed, its frame is destroyed and ScopeExit turns the spinner off, all on top of the destructor.",
         threads: {
           Main: [
-            "call|app.setLoading(false)",
-            "body|loadPreset() (resume)",
-            "resume|handle.resume()",
-            "executor|MainThreadLoop::executeReady()",
-            "call|loop.sync_wait(root.join())",
+            "call|~ScopeExit() → setLoading(false)",
+            "call|frame.destroy()",
+            "body|loadPreset: set_stopped()",
+            "executor|loop.drain()",
             "call|root.close_and_wait()",
             "call|Plugin::~Plugin()",
             "loop|Host::destroyPlugin()",
           ],
           Worker: workerIdle,
         },
-        heap: [{ name: "loadPreset", state: "running", note: "co_return → ScopeExit", locals: ["preset", "finish", "samples"] }],
+        heap: [{ name: "loadPreset", state: "suspended", note: "never resumed → destroyed", locals: ["preset", "finish"] }],
       },
       {
         line: 3,
         label: "Joined, destructor returns",
-        caption: "Every frame is gone, the join completes, and the destructor returns to the host.",
+        caption: "Every frame is gone, the loop ends, and the destructor returns to the host.",
         threads: {
           Main: [
             "call|Plugin::~Plugin()",
@@ -731,7 +725,8 @@ export const scenarios: Record<string, CallStackScenario> = {
     code: [
       "MainActorTask<void> loadPreset(Preset preset) {",
       "  app.setLoading(true);",
-      "  auto tree = co_await prepareSamplerTree(preset);",
+      "  auto tree = co_await starts_on(workers,",
+      "      prepareSamplerTree(preset));",
       "  sampler.install(tree);",
       "  app.setLoading(false);",
       "}",
@@ -753,13 +748,13 @@ export const scenarios: Record<string, CallStackScenario> = {
         heap: [{ name: "loadPreset", state: "running", note: "on Main", locals: ["preset"] }],
       },
       {
-        line: 3,
-        label: "The child hops to the worker",
-        caption: "prepareSamplerTree() runs its ScheduleOn{workers}. The parent waits for it.",
+        line: [3, 4],
+        label: "starts_on: child → worker queue",
+        caption: "starts_on puts the child, not started yet, into the worker's queue. The parent waits for it.",
         threads: {
           Main: [
-            "call|ScheduleOn::await_suspend()",
-            "body|prepareSamplerTree()",
+            "call|workers.schedule()",
+            "call|starts_on: start()",
             "body|loadPreset() (resume)",
             "resume|handle.resume()",
             "executor|MainExecutor::drain()",
@@ -770,18 +765,18 @@ export const scenarios: Record<string, CallStackScenario> = {
         },
         heap: [
           { name: "loadPreset", state: "suspended", note: "awaits child", locals: ["preset"] },
-          { name: "prepareSamplerTree", state: "suspended", note: "in worker queue" },
+          { name: "prepareSamplerTree", state: "suspended", note: "not started · in worker queue" },
         ],
       },
       {
-        line: 3,
+        line: [3, 4],
         label: "Child runs on the worker",
         caption: "The child does the heavy work. Main is free.",
         threads: {
           Main: ["call|Editor::paint()", ...mainLoop],
           Worker: [
             "call|buildSamplerTree()",
-            "body|prepareSamplerTree() (resume)",
+            "body|prepareSamplerTree()",
             "resume|handle.resume()",
             ...workerLoop,
           ],
@@ -810,7 +805,7 @@ export const scenarios: Record<string, CallStackScenario> = {
         ],
       },
       {
-        line: 4,
+        line: 5,
         label: "Back on Main, by itself",
         caption: "Main drains its queue and resumes the parent. No resumeOn(mainThread) anywhere.",
         threads: {

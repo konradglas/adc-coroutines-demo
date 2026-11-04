@@ -49,8 +49,8 @@ function kind(badge: string) {
 
 <style scoped>
 .thread-badges {
-  background: #22272e;
-  border: 1px solid #444c56;
+  background: #161616;
+  border: 1px solid #3a3a3a;
   border-radius: 0.6rem;
   margin-top: 0.8rem;
   column-gap: 2.5rem;
@@ -72,8 +72,8 @@ function kind(badge: string) {
 }
 
 .tb-row.current {
-  background: rgba(216, 151, 107, 0.14);
-  box-shadow: inset 2px 0 0 #d8976b;
+  background: rgba(254, 79, 0, 0.14);
+  box-shadow: inset 2px 0 0 #fe4f00;
 }
 
 .tb-code {
@@ -95,22 +95,22 @@ function kind(badge: string) {
 }
 
 .tb-badge.main {
-  background: rgba(105, 180, 165, 0.16);
-  color: #69b4a5;
+  background: rgba(155, 107, 255, 0.16);
+  color: #9b6bff;
 }
 
 .tb-badge.worker {
-  background: rgba(216, 151, 107, 0.16);
-  color: #d8976b;
+  background: rgba(254, 79, 0, 0.16);
+  color: #fe4f00;
 }
 
 .tb-badge.unknown {
-  background: rgba(224, 122, 111, 0.12);
-  border: 1px dashed #e07a6f;
-  color: #e07a6f;
+  background: rgba(255, 79, 168, 0.12);
+  border: 1px dashed #ff4fa8;
+  color: #ff4fa8;
 }
 
 .tb-badge.flipped {
-  box-shadow: 0 0 0 3px rgba(105, 180, 165, 0.25);
+  box-shadow: 0 0 0 3px rgba(155, 107, 255, 0.25);
 }
 </style>

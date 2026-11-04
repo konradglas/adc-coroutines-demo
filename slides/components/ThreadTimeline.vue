@@ -40,10 +40,10 @@ function hopPath(p: TimelinePanel, from: [string, number], to: [string, number])
 }
 
 const colors: Record<BlockKind, string> = {
-  a: '#d8976b',
-  b: '#69b4a5',
+  a: '#fe4f00',
+  b: '#9b6bff',
   other: '#3a3a3a',
-  blocked: '#e07a6f',
+  blocked: '#ff4fa8',
 }
 </script>
 
@@ -55,8 +55,8 @@ const colors: Record<BlockKind, string> = {
         <svg :viewBox="`0 0 ${width(p)} ${height(p)}`" preserveAspectRatio="xMidYMin meet">
           <defs>
             <pattern :id="`tt-hatch-${pi}`" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-              <rect width="7" height="7" fill="rgba(224, 122, 111, 0.16)" />
-              <line x1="0" y1="0" x2="0" y2="7" stroke="rgba(224, 122, 111, 0.55)" stroke-width="2.5" />
+              <rect width="7" height="7" fill="rgba(255, 79, 168, 0.16)" />
+              <line x1="0" y1="0" x2="0" y2="7" stroke="rgba(255, 79, 168, 0.55)" stroke-width="2.5" />
             </pattern>
             <marker v-for="k in ['a', 'b']" :id="`tt-arrow-${pi}-${k}`" :key="k" viewBox="0 0 8 8" refX="4" refY="4"
               markerWidth="6" markerHeight="6" orient="auto-start-reverse">
@@ -164,7 +164,7 @@ const colors: Record<BlockKind, string> = {
 
 .tt-label {
   dominant-baseline: central;
-  fill: #101010;
+  fill: #000000;
   font-family: "SF Mono", Menlo, Consolas, monospace;
   font-size: 10px;
   font-weight: 700;
@@ -178,7 +178,7 @@ const colors: Record<BlockKind, string> = {
 }
 
 .tt-label.blocked {
-  fill: #f0b3ab;
+  fill: #ffb3d9;
   font-size: 9.5px;
 }
 
@@ -230,11 +230,11 @@ const colors: Record<BlockKind, string> = {
   width: 0.6rem;
 }
 
-.tt-legend i.a { background: #d8976b; }
-.tt-legend i.b { background: #69b4a5; }
+.tt-legend i.a { background: #fe4f00; }
+.tt-legend i.b { background: #9b6bff; }
 .tt-legend i.other { background: #3a3a3a; }
 .tt-legend i.blocked {
-  background: repeating-linear-gradient(45deg, rgba(224, 122, 111, 0.55) 0 2px, rgba(224, 122, 111, 0.16) 2px 5px);
-  border: 1px solid #e07a6f;
+  background: repeating-linear-gradient(45deg, rgba(255, 79, 168, 0.55) 0 2px, rgba(255, 79, 168, 0.16) 2px 5px);
+  border: 1px solid #ff4fa8;
 }
 </style>

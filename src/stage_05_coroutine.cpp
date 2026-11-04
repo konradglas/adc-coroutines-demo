@@ -1,15 +1,14 @@
 #include "demo_async.hpp"
 
-#include <affine/affine_task.hpp>
-#include <affine/main_thread_executor.hpp>
-#include <affine/stdexec.hpp>
+#include <affine/main_actor_task.hpp>
+#include <affine/task_scope.hpp>
 #include <exec/static_thread_pool.hpp>
 
-using MainActorTask = affine::affine_task<void, affine::main_thread_executor>;
+using affine::MainActorTask;
 
 template <class WorkerScheduler>
-MainActorTask loadPreset(demo::App &app, demo::Sampler &sampler, demo::Preset preset,
-                         WorkerScheduler worker) {
+MainActorTask<void> loadPreset(demo::App &app, demo::Sampler &sampler,
+                               demo::Preset preset, WorkerScheduler worker) {
     app.setLoading(true);
     demo::ScopeExit stopLoading([&] { app.setLoading(false); });
 
@@ -36,13 +35,15 @@ int main() {
     demo::HostQueue hostQueue;
     exec::static_thread_pool workers(2);
 
-    affine::main_thread_executor mainActor(
-        std::this_thread::get_id(),
-        [&](std::function<void()> callback) { hostQueue.post(std::move(callback)); },
-        [&](std::function<bool()> done) { hostQueue.pumpUntil(std::move(done)); });
+    // The host owns the main thread: the scope only posts into its event loop.
+    affine::root_scope scope(
+        [&](std::function<void()> callback) { hostQueue.post(std::move(callback)); });
 
-    auto task = loadPreset(app, sampler, demo::concertGrand(), workers.get_scheduler());
-    affine::sync_wait(std::move(task).scheduleOn(mainActor));
+    auto loading =
+        affine::spawn(loadPreset(app, sampler, demo::concertGrand(), workers.get_scheduler()),
+                      scope);
+    hostQueue.pumpUntil([&] { return loading.completed(); });
+    scope.shutdown_and_wait();
 
     return app.qaCheck("Concert Grand", sampler) ? 0 : 1;
 }

@@ -242,7 +242,7 @@ main   -> install samples, notify, and clear loading state
 ```
 
 `stdexec` senders run the bounded operations away from main. `stdexec-affine` resumes
-the body of `MainActorTask` on the main executor after each `co_await`. QA's consistency
+the body of `MainActorTask` on the main thread's scheduler after each `co_await`. QA's consistency
 check passes.
 
 The demo's user response is simulated by a sender. A real GUI build would adapt the
