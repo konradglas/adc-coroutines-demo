@@ -6,8 +6,8 @@ COPY package.json package-lock.json ./
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 RUN npm ci
 COPY . .
-# Speaker notes are the full spoken script; keep them out unless asked for.
-ARG WITH_NOTES=false
+# Speaker notes are included (presenter view for rehearsal). WITH_NOTES=false strips them.
+ARG WITH_NOTES=true
 RUN if [ "$WITH_NOTES" = "true" ]; then npx slidev build; \
     else npx slidev build --without-notes; fi
 
