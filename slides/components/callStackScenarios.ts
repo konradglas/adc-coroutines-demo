@@ -128,14 +128,13 @@ export const scenarios: Record<string, CallStackScenario> = {
       },
       {
         line: 2,
-        label: "Resumed by Main’s executor",
+        label: "Click → loadPreset(), like before",
         caption:
-          "Main’s executor resumes it. The body is just a call under resume().",
+          "The click starts it inline: until the first co_await, the stack is the same as the synchronous version.",
         threads: {
           Main: [
-            "body|loadPreset() (resume)",
-            "resume|handle.resume()",
-            "executor|MainExecutor::drain()",
+            "body|loadPreset()",
+            "call|onLoadClicked()",
             ...mainLoop,
           ],
           Worker: workerIdle,
@@ -157,9 +156,8 @@ export const scenarios: Record<string, CallStackScenario> = {
         threads: {
           Main: [
             "call|ResumeOn::await_suspend()",
-            "body|loadPreset() (resume)",
-            "resume|handle.resume()",
-            "executor|MainExecutor::drain()",
+            "body|loadPreset()",
+            "call|onLoadClicked()",
             ...mainLoop,
           ],
           Worker: workerIdle,
@@ -176,7 +174,7 @@ export const scenarios: Record<string, CallStackScenario> = {
       {
         line: 3,
         label: "Main is back in its loop",
-        caption: "…and returns. So does resume(). Main is back in its loop.",
+        caption: "…and returns. loadPreset() returns to onLoadClicked(). Main is back in its loop.",
         threads: { Main: mainIdle, Worker: workerIdle },
         heap: [
           {

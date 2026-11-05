@@ -864,7 +864,7 @@ Same function. Two new lines: resumeOn(workers) and resumeOn(mainThread).
 Now we have two stacks, Main and a worker. Plus the coroutine frame in the middle.
 
 [click]
-The click starts the coroutine on Main, like before.
+The click starts the coroutine on Main. Look at the stack: exactly the same as the synchronous version. Until the first co_await, it's just a function call.
 
 [click]
 Then: co_await resumeOn(workers). resumeOn means: put me in that thread's queue, and wake it up.
