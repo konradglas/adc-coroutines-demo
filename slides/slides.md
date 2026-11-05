@@ -692,6 +692,7 @@ So let's have a quick look at what this funny syntax actually gives us back.
 
 [click]
 The difference: co_await. And starts_on says where the heavy part runs: on the workers.
+starts_on is from std::execution, new in C++26. I'm using stdexec, its reference implementation, plus a few things on top that I found missing. More on that at the end.
 
 [click]
 We still have the sequential order. It looks exactly the same.
@@ -1404,10 +1405,10 @@ MainActorTask<void> loadPreset(...) {
 
 ```cpp {all|4-5}{at:1}
 Task<Samples> loadSamples(...) {
-    auto stop = co_await stdexec::read_env(stdexec::get_stop_token);
+    auto stop = co_await read_env(get_stop_token);
     for (auto& file : files) {
         if (stop.stop_requested())
-            co_await stdexec::just_stopped();
+            co_await just_stopped();
         samples.add(readFile(file));
     }
     co_return samples;
