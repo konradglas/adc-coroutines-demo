@@ -576,7 +576,7 @@ task<void> loadPreset(App& app, Sampler& sampler,
     });
     app.loadMixerState(preset);
     auto mixer = app.mixerSnapshot();
-    auto tree = co_await prepareSamplerTree(preset, mixer);
+    auto tree = co_await starts_on(workers, prepareSamplerTree(preset, mixer));
     sampler.installSamplerTree(tree);
     keySwitches.load(preset);
 
@@ -602,14 +602,14 @@ task<void> loadPreset(App& app, Sampler& sampler,
     });
     app.loadMixerState(preset);
     auto mixer = app.mixerSnapshot();
-    auto tree = co_await prepareSamplerTree(preset, mixer);
+    auto tree = co_await starts_on(workers, prepareSamplerTree(preset, mixer));
     sampler.installSamplerTree(tree);
     keySwitches.load(preset);
     auto location = co_await askUserToLocateSamples(
         sampler.missingSamples());
     if (!location)
         co_return;
-    auto samples = co_await loadSamples(*location);
+    auto samples = co_await starts_on(workers, loadSamples(*location));
     sampler.installSamples(std::move(samples));
 }
 ```
@@ -668,8 +668,8 @@ ScopeExit finish([&] {
     finished = true;
 });
 
-auto tree = co_await prepareSamplerTree(
-    preset, mixer);
+auto tree = co_await starts_on(workers,
+    prepareSamplerTree(preset, mixer));
 
 sampler.installSamplerTree(tree);
 keySwitches.load(preset);
@@ -691,7 +691,7 @@ keySwitches.load(preset);
 So let's have a quick look at what this funny syntax actually gives us back.
 
 [click]
-The only difference: co_await.
+The difference: co_await. And starts_on says where the heavy part runs: on the workers.
 
 [click]
 We still have the sequential order. It looks exactly the same.
@@ -728,9 +728,10 @@ void loadPreset(...) {
 
 <div class="eyebrow">Coroutine</div>
 
-```cpp {none|1|2|4}
+```cpp {none|1|2-3|5}
 task<void> loadPreset(...) {
-    auto tree = co_await prepareSamplerTree(...);
+    auto tree = co_await starts_on(workers,
+        prepareSamplerTree(...));
     // ...
     co_return;
 }
@@ -995,7 +996,7 @@ clicks: 4
 
 <!--
 Now let's zoom out, and look at time instead of stacks. Time runs downwards.
-On the left, the blocking version. Main runs the first part, then it sits in get() until the worker is done. Nothing else runs on Main. No painting.
+On the left, the blocking version. Main runs the first part, then it builds the tree itself. Heavy work, right on Main. Nothing else runs. No painting.
 
 [click]
 On the right, the coroutine. Chunk one runs on Main. Then it hops to a worker.
@@ -2077,8 +2078,8 @@ co_await std::move(task);
 ScopedLock lock(stateMutex);
 auto mixer = app.mixerSnapshot();
 
-auto tree = co_await
-    prepareSamplerTree(preset, mixer);
+auto tree = co_await starts_on(workers,
+    prepareSamplerTree(preset, mixer));
 
 sampler.installSamplerTree(std::move(tree));
 ```
@@ -2103,8 +2104,8 @@ MixerSnapshot mixer;
     mixer = app.mixerSnapshot();
 }
 
-auto tree = co_await
-    prepareSamplerTree(preset, mixer);
+auto tree = co_await starts_on(workers,
+    prepareSamplerTree(preset, mixer));
 
 {
     ScopedLock lock(stateMutex);
@@ -2206,7 +2207,7 @@ loading.close() — what actually happens?
 
 ```cpp {none|1|1|2}
 stdexec::task loadPreset(...) {
-    auto tree = co_await prepareSamplerTree(...);
+    auto tree = co_await starts_on(workers, prepareSamplerTree(...));
 }
 ```
 

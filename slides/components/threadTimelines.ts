@@ -41,7 +41,7 @@ const audioBlocks = (at = 0) => [0.2, 1.2, 2.2, 3.2, 4.2, 5.2].map(from => ({
 
 export const timelines: Record<string, Timeline> = {
   loadPreset: {
-    legend: { a: 'loadPreset', b: 'onKeyboardNote', other: 'other work', blocked: 'blocked' },
+    legend: { a: 'loadPreset', b: 'onKeyboardNote', other: 'other work', blocked: 'Main busy, nothing else runs' },
     labels: [
       'Blocking: Main is stuck',
       'Chunk 1 → hop to the worker',
@@ -50,7 +50,7 @@ export const timelines: Record<string, Timeline> = {
       'Back on Main · nobody waited',
     ],
     captions: [
-      'Blocking: Main sits in get() until the worker is done. Nothing else runs on it.',
+      'Blocking: Main builds the tree itself. Nothing else runs on it.',
       'Suspending: chunk 1 runs on Main, then the continuation hops to a worker…',
       '…and Main is free: it paints and handles the mouse while chunk 2 runs.',
       'A second coroutine starts on Main and hops to the audio thread, which picks it up at the next block.',
@@ -59,18 +59,13 @@ export const timelines: Record<string, Timeline> = {
     panels: [
       {
         title: 'Blocking',
-        lanes: ['Main', 'Worker'],
+        lanes: ['Main'],
         length: 6,
         blocks: [
           { lane: 'Main', from: 0, to: 1, kind: 'a', label: '1' },
-          { lane: 'Main', from: 1, to: 4, kind: 'blocked', label: 'blocked in get()' },
-          { lane: 'Worker', from: 1, to: 4, kind: 'a', label: 'buildSamplerTree' },
+          { lane: 'Main', from: 1, to: 4, kind: 'blocked', label: 'buildSamplerTree' },
           { lane: 'Main', from: 4, to: 5, kind: 'a', label: '3' },
           { lane: 'Main', from: 5.3, to: 5.8, kind: 'other', label: 'paint' },
-        ],
-        hops: [
-          { from: ['Main', 1], to: ['Worker', 1], kind: 'a' },
-          { from: ['Worker', 4], to: ['Main', 4], kind: 'a' },
         ],
       },
       {

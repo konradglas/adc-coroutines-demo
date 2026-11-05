@@ -29,7 +29,7 @@ export const badgeScenarios: Record<string, { lines: BadgeLine[] }> = {
       { code: 'MainActorTask<void> loadPreset(Preset preset) {' },
       { code: '  app.setLoading(true);', badge: '?', then: { badge: 'Main', at: 1 } },
       { code: '  ScopeExit finish([&] { app.setLoading(false); });', badge: '?', then: { badge: 'Main', at: 1 } },
-      { code: '  auto tree = co_await prepareSamplerTree(preset);', badge: '?', then: { badge: 'Main', at: 1 } },
+      { code: '  auto tree = co_await starts_on(workers, prepareSamplerTree(preset));', badge: '?', then: { badge: 'Main', at: 1 } },
       { code: '  sampler.install(tree);', badge: '?', then: { badge: 'Main', at: 1 } },
       { code: '  auto location =' },
       { code: '      co_await askUserToLocateSamples();', badge: '?', then: { badge: 'Main', at: 1 } },
