@@ -60,8 +60,8 @@ export const scenarios: Record<string, CallStackScenario> = {
     code: [
       "void loadPreset(Preset preset) {",
       "  app.setLoading(true);",
-      "  auto tree = buildSamplerTree(preset);",
-      "  sampler.install(tree);",
+      "  auto instrument = buildInstrument(preset);",
+      "  sampler.install(instrument);",
       "  app.setLoading(false);",
       "}",
     ],
@@ -83,11 +83,11 @@ export const scenarios: Record<string, CallStackScenario> = {
       },
       {
         line: 3,
-        label: "Main builds the tree itself",
-        caption: "Main runs buildSamplerTree() itself: no events, no painting.",
+        label: "Main builds the instrument itself",
+        caption: "Main runs buildInstrument() itself: no events, no painting.",
         threads: {
           Main: [
-            "call|buildSamplerTree()",
+            "call|buildInstrument()",
             "call|loadPreset()",
             "call|onLoadClicked()",
             ...mainLoop,
@@ -98,7 +98,7 @@ export const scenarios: Record<string, CallStackScenario> = {
       {
         line: 4,
         label: "Main gets its stack back",
-        caption: "Only when the tree is built does Main get its stack back.",
+        caption: "Only when the instrument is built does Main get its stack back.",
         threads: {
           Main: ["call|loadPreset()", "call|onLoadClicked()", ...mainLoop],
         },
@@ -113,9 +113,9 @@ export const scenarios: Record<string, CallStackScenario> = {
       "task<void> loadPreset(Preset preset) {",
       "  app.setLoading(true);",
       "  co_await resumeOn(workers);",
-      "  auto tree = buildSamplerTree(preset);",
+      "  auto instrument = buildInstrument(preset);",
       "  co_await resumeOn(mainThread);",
-      "  sampler.install(tree);",
+      "  sampler.install(instrument);",
       "  app.setLoading(false);",
       "}",
     ],
@@ -193,7 +193,7 @@ export const scenarios: Record<string, CallStackScenario> = {
         threads: {
           Main: ["call|Editor::paint()", ...mainLoop],
           Worker: [
-            "call|buildSamplerTree()",
+            "call|buildInstrument()",
             "body|loadPreset() (resume)",
             "resume|handle.resume()",
             ...workerLoop,
@@ -223,7 +223,7 @@ export const scenarios: Record<string, CallStackScenario> = {
             name: "loadPreset",
             state: "suspended",
             note: "in Main queue",
-            locals: ["preset", "tree"],
+            locals: ["preset", "instrument"],
           },
         ],
       },
@@ -245,7 +245,7 @@ export const scenarios: Record<string, CallStackScenario> = {
             name: "loadPreset",
             state: "running",
             note: "on Main",
-            locals: ["preset", "tree"],
+            locals: ["preset", "instrument"],
           },
         ],
       },
@@ -510,8 +510,8 @@ export const scenarios: Record<string, CallStackScenario> = {
       "  app.setLoading(true);",
       "  ScopeExit finish([&] { app.setLoading(false); });",
       "  co_await resumeOn(workers);",
-      "  auto tree = buildSamplerTree(preset);",
-      "  sampler.install(tree);",
+      "  auto instrument = buildInstrument(preset);",
+      "  sampler.install(instrument);",
       "}",
     ],
     steps: [
@@ -532,12 +532,12 @@ export const scenarios: Record<string, CallStackScenario> = {
       },
       {
         line: 5,
-        label: "Worker builds the tree",
+        label: "Worker builds the instrument",
         caption: "The hop to the worker works. Main is free.",
         threads: {
           Main: ["call|Editor::paint()", ...mainLoop],
           Worker: [
-            "call|buildSamplerTree()",
+            "call|buildInstrument()",
             "body|loadPreset() (resume)",
             "resume|handle.resume()",
             ...workerLoop,
@@ -560,7 +560,7 @@ export const scenarios: Record<string, CallStackScenario> = {
           ],
         },
         status: { Main: "painting · reads sampler" },
-        heap: [{ name: "loadPreset", state: "running", note: "on Worker", locals: ["preset", "finish", "tree"] }],
+        heap: [{ name: "loadPreset", state: "running", note: "on Worker", locals: ["preset", "finish", "instrument"] }],
       },
       {
         line: [3, 7],
@@ -577,7 +577,7 @@ export const scenarios: Record<string, CallStackScenario> = {
           ],
         },
         status: { Main: "painting · reads app" },
-        heap: [{ name: "loadPreset", state: "running", note: "unwinding on Worker", locals: ["preset", "finish", "tree"] }],
+        heap: [{ name: "loadPreset", state: "running", note: "unwinding on Worker", locals: ["preset", "finish", "instrument"] }],
       },
       {
         label: "Finished on the worker",
@@ -721,9 +721,9 @@ export const scenarios: Record<string, CallStackScenario> = {
     code: [
       "MainActorTask<void> loadPreset(Preset preset) {",
       "  app.setLoading(true);",
-      "  auto tree = co_await starts_on(workers,",
-      "      prepareSamplerTree(preset));",
-      "  sampler.install(tree);",
+      "  auto instrument = co_await starts_on(workers,",
+      "      prepareInstrument(preset));",
+      "  sampler.install(instrument);",
       "  app.setLoading(false);",
       "}",
     ],
@@ -761,7 +761,7 @@ export const scenarios: Record<string, CallStackScenario> = {
         },
         heap: [
           { name: "loadPreset", state: "suspended", note: "awaits child", locals: ["preset"] },
-          { name: "prepareSamplerTree", state: "suspended", note: "not started · in worker queue" },
+          { name: "prepareInstrument", state: "suspended", note: "not started · in worker queue" },
         ],
       },
       {
@@ -771,8 +771,8 @@ export const scenarios: Record<string, CallStackScenario> = {
         threads: {
           Main: ["call|Editor::paint()", ...mainLoop],
           Worker: [
-            "call|buildSamplerTree()",
-            "body|prepareSamplerTree()",
+            "call|buildInstrument()",
+            "body|prepareInstrument()",
             "resume|handle.resume()",
             ...workerLoop,
           ],
@@ -780,7 +780,7 @@ export const scenarios: Record<string, CallStackScenario> = {
         status: { Main: "free · painting" },
         heap: [
           { name: "loadPreset", state: "suspended", note: "awaits child", locals: ["preset"] },
-          { name: "prepareSamplerTree", state: "running", note: "on Worker" },
+          { name: "prepareInstrument", state: "running", note: "on Worker" },
         ],
       },
       {
@@ -791,13 +791,13 @@ export const scenarios: Record<string, CallStackScenario> = {
           Worker: [
             "executor|MainExecutor::post()",
             "call|ResumeOnMain::await_suspend()",
-            "call|prepareSamplerTree() done",
+            "call|prepareInstrument() done",
             ...workerLoop,
           ],
         },
         heap: [
-          { name: "loadPreset", state: "suspended", note: "in Main queue", locals: ["preset", "tree"] },
-          { name: "prepareSamplerTree", state: "done", note: "destroyed" },
+          { name: "loadPreset", state: "suspended", note: "in Main queue", locals: ["preset", "instrument"] },
+          { name: "prepareInstrument", state: "done", note: "destroyed" },
         ],
       },
       {
@@ -813,7 +813,7 @@ export const scenarios: Record<string, CallStackScenario> = {
           ],
           Worker: workerIdle,
         },
-        heap: [{ name: "loadPreset", state: "running", note: "on Main", locals: ["preset", "tree"] }],
+        heap: [{ name: "loadPreset", state: "running", note: "on Main", locals: ["preset", "instrument"] }],
       },
     ],
   },

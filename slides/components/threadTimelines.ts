@@ -50,7 +50,7 @@ export const timelines: Record<string, Timeline> = {
       'Back on Main · nobody waited',
     ],
     captions: [
-      'Blocking: Main builds the tree itself. Nothing else runs on it.',
+      'Blocking: Main builds the instrument itself. Nothing else runs on it.',
       'Suspending: chunk 1 runs on Main, then the continuation hops to a worker…',
       '…and Main is free: it paints and handles the mouse while chunk 2 runs.',
       'A second coroutine starts on Main and hops to the audio thread, which picks it up at the next block.',
@@ -63,7 +63,7 @@ export const timelines: Record<string, Timeline> = {
         length: 6,
         blocks: [
           { lane: 'Main', from: 0, to: 1, kind: 'a', label: '1' },
-          { lane: 'Main', from: 1, to: 4, kind: 'blocked', label: 'buildSamplerTree' },
+          { lane: 'Main', from: 1, to: 4, kind: 'blocked', label: 'buildInstrument' },
           { lane: 'Main', from: 4, to: 5, kind: 'a', label: '3' },
           { lane: 'Main', from: 5.3, to: 5.8, kind: 'other', label: 'paint' },
         ],

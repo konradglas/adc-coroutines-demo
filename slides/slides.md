@@ -56,9 +56,9 @@ void loadPreset(...) {
     app.loadMixerState(preset);
     auto mixer = app.mixerSnapshot();
 
-    auto tree = prepareSamplerTree(preset, mixer);
+    auto instrument = prepareInstrument(preset, mixer);
 
-    sampler.installSamplerTree(tree);
+    sampler.installInstrument(instrument);
     keySwitches.load(preset);
 }
 ```
@@ -67,7 +67,7 @@ void loadPreset(...) {
 
 <!--
 Here's a concrete example: loading a preset.
-Set the loading flag. Load the mixer state. Prepare the sampler tree, install it. And a ScopeExit turns the spinner off at the end, whatever happens.
+Set the loading flag. Load the mixer state. Prepare the instrument, install it. And a ScopeExit turns the spinner off at the end, whatever happens.
 This code has been running for years. But over the years, things got more complex. Bigger presets, more and more license checks.
 
 [click]
@@ -103,8 +103,8 @@ But I know about THREADS! (beat)
 
 ```cpp {none|1-4|6-7}
 workers.run([&, preset, mixer] {
-    auto tree = prepareSamplerTree(preset, mixer);
-    sampler.installSamplerTree(tree);
+    auto instrument = prepareInstrument(preset, mixer);
+    sampler.installInstrument(instrument);
 });
 
 keySwitches.load(preset);
@@ -117,7 +117,7 @@ app.notifyPresetLoaded();
 Easy. Move the slow line away.
 
 [click]
-We hand it over to a worker thread. It runs off Main: it builds the sampler tree there, and installs it on the sampler.
+We hand it over to a worker thread. It runs off Main: it builds the instrument there, and installs it on the sampler.
 
 [click]
 And the rest stays on Main.
@@ -175,8 +175,8 @@ ScopeExit finish([&] {
 });
 
 workers.run([&, preset, mixer] {
-    auto tree = prepareSamplerTree(preset, mixer);
-    sampler.installSamplerTree(tree);
+    auto instrument = prepareInstrument(preset, mixer);
+    sampler.installInstrument(instrument);
 });
 
 keySwitches.load(preset);
@@ -191,7 +191,7 @@ keySwitches.load(preset);
 
   <div v-if="$clicks === 2" class="race-step race-result">
     <h3>What QA uncovered</h3>
-    <p>reads the sampler's tree</p>
+    <p>reads the installed instrument</p>
   </div>
 
   <div v-if="$clicks >= 3" class="race-step race-thread">
@@ -220,16 +220,16 @@ So, let's look at it again. (beat) Maybe QA was right.
 Here's what I assumed: keySwitches.load() only needs the preset. Nothing else.
 
 [click]
-But it reads the sampler's tree. The one the worker installs.
+But it reads the installed instrument. The one the worker installs.
 
 [click]
-And the worker installs that tree… whenever. Whenever it's done building.
+And the worker installs that instrument… whenever. Whenever it's done building.
 
 [click]
 Main doesn't wait. It loads the key switches right away, and reports the preset as loaded. So now they race.
 
 [click]
-Either Main reads the old tree: that's the old preset QA saw. Or both touch it at the same time: undefined behaviour. That's the crash.
+Either Main reads the old instrument: that's the old preset QA saw. Or both touch it at the same time: undefined behaviour. That's the crash.
 (beat) The order of the lines was the dependency. And I moved it away.
 -->
 
@@ -245,10 +245,10 @@ ScopeExit finish([&] {
 });
 
 workers.run([&, preset, mixer] {
-    auto tree = prepareSamplerTree(preset, mixer);
+    auto instrument = prepareInstrument(preset, mixer);
 
-    mainQueue.post([&, tree = std::move(tree)] {
-        sampler.installSamplerTree(tree);
+    mainQueue.post([&, instrument = std::move(instrument)] {
+        sampler.installInstrument(instrument);
         keySwitches.load(preset);
     });
 });
@@ -260,10 +260,10 @@ workers.run([&, preset, mixer] {
 Alright, let's restore that order. We can dispatch to Main, right?
 
 [click]
-prepareSamplerTree still runs on the worker thread. Otherwise this wouldn't make any sense.
+prepareInstrument still runs on the worker thread. Otherwise this wouldn't make any sense.
 
 [click]
-And once it's done, we post back to Main. Install the tree, then load the key switches. In that order, on Main.
+And once it's done, we post back to Main. Install the instrument, then load the key switches. In that order, on Main.
 
 [click]
 Order restored. Everything runs in sequence again. Nice! Ship it!
@@ -334,10 +334,10 @@ workers.run(...);
 
 ```cpp
 workers.run([&, preset, mixer] {
-    auto tree = prepareSamplerTree(preset, mixer);
+    auto instrument = prepareInstrument(preset, mixer);
 
-    mainQueue.post([&, tree = std::move(tree)] {
-        sampler.installSamplerTree(tree);
+    mainQueue.post([&, instrument = std::move(instrument)] {
+        sampler.installInstrument(instrument);
         keySwitches.load(preset);
         app.notifyPresetLoaded();
         app.setLoading(false);
@@ -363,7 +363,7 @@ workers.run() hands the work to the worker, and returns immediately. On Main.
 So the function ends, and the ScopeExit fires. It reports the preset as loaded and turns the spinner off. Way too early.
 
 [click]
-The worker installs the tree later. Silently. Nobody tells the UI.
+The worker installs the instrument later. Silently. Nobody tells the UI.
 
 [click]
 RAII is so nice. But I can't use it here.
@@ -413,8 +413,8 @@ Good idea. Let's put it on the feature request list. (beat)
 app.setLoading(true);
 ...
 
-prepareSamplerTreeAsync(..., [&](auto tree) {
-    sampler.installSamplerTree(tree);
+prepareInstrumentAsync(..., [&](auto instrument) {
+    sampler.installInstrument(instrument);
     keySwitches.load(preset);
 
     askUserToLocateSamples(..., [&](auto location) {
@@ -435,7 +435,7 @@ prepareSamplerTreeAsync(..., [&](auto tree) {
 But then I try it anyway. Because why not, right? It can't be that hard.
 
 [click]
-We build the sampler tree, and give it a completion handler: install the tree, load the key switches.
+We build the instrument, and give it a completion handler: install the instrument, load the key switches.
 
 [click]
 Inside that handler, another one: ask the user to locate the samples. If there's no location, we return. Obviously. (don't linger on the return)
@@ -456,8 +456,8 @@ Otherwise, load the samples asynchronously, and complete inside that third callb
 app.setLoading(true);
 ...
 
-prepareSamplerTreeAsync(..., [&](auto tree) {
-    sampler.installSamplerTree(tree);
+prepareInstrumentAsync(..., [&](auto instrument) {
+    sampler.installInstrument(instrument);
     keySwitches.load(preset);
 
     askUserToLocateSamples(..., [&](auto location) {
@@ -509,8 +509,8 @@ I'd have to reset that state by hand. And I forgot. Again.
 # Okay. Deep breath.
 
 ```text
-prepare tree
-install tree
+prepare instrument
+install instrument
 load key switches
 ask user
 load samples
@@ -522,7 +522,7 @@ notify
 
 <!--
 All right. Deep breath. (beat)
-It doesn't look that hard, does it? Prepare the tree. Install the tree. Load the key switches. Ask the user for the missing samples. Load the samples. Install them. Notify.
+It doesn't look that hard, does it? Prepare the instrument. Install the instrument. Load the key switches. Ask the user for the missing samples. Load the samples. Install them. Notify.
 
 [click]
 It looks so simple. The only problem: it's blocking.
@@ -546,9 +546,10 @@ void loadPreset(App& app, Sampler& sampler,
     });
     app.loadMixerState(preset);
     auto mixer = app.mixerSnapshot();
-    auto tree = prepareSamplerTree(preset, mixer);
-    sampler.installSamplerTree(tree);
+    auto instrument = prepareInstrument(preset, mixer);
+    sampler.installInstrument(instrument);
     keySwitches.load(preset);
+
 
 
 
@@ -566,32 +567,37 @@ void loadPreset(App& app, Sampler& sampler,
 <div v-if="$clicks < 2">
 
 ```cpp
-task<void> loadPreset(App& app, Sampler& sampler,
+void loadPreset(App& app, Sampler& sampler,
                 Preset preset, bool& finished) {
     app.setLoading(true);
-    ScopeExit finish([&] {
-        app.notifyPresetLoaded();
-        app.setLoading(false);
-        finished = true;
-    });
     app.loadMixerState(preset);
     auto mixer = app.mixerSnapshot();
-    auto tree = co_await starts_on(workers, prepareSamplerTree(preset, mixer));
-    sampler.installSamplerTree(tree);
-    keySwitches.load(preset);
-
-
-
-
-
-
+    prepareInstrumentAsync(preset, mixer, [&, preset](auto instrument) {
+        sampler.installInstrument(instrument);
+        keySwitches.load(preset);
+        askUserToLocateSamples(sampler.missingSamples(),
+                               [&](auto location) {
+            if (!location) {
+                app.notifyPresetLoaded();
+                app.setLoading(false);
+                finished = true;
+                return;
+            }
+            loadSamplesAsync(*location, [&](auto samples) {
+                sampler.installSamples(std::move(samples));
+                app.notifyPresetLoaded();
+                app.setLoading(false);
+                finished = true;
+            });
+        });
+    });
 }
 ```
 
 </div>
 <div v-else>
 
-```cpp {14-19}
+```cpp
 task<void> loadPreset(App& app, Sampler& sampler,
                 Preset preset, bool& finished) {
     app.setLoading(true);
@@ -602,8 +608,9 @@ task<void> loadPreset(App& app, Sampler& sampler,
     });
     app.loadMixerState(preset);
     auto mixer = app.mixerSnapshot();
-    auto tree = co_await starts_on(workers, prepareSamplerTree(preset, mixer));
-    sampler.installSamplerTree(tree);
+    auto instrument = co_await starts_on(workers,
+        prepareInstrument(preset, mixer));
+    sampler.installInstrument(instrument);
     keySwitches.load(preset);
     auto location = co_await askUserToLocateSamples(
         sampler.missingSamples());
@@ -622,17 +629,25 @@ task<void> loadPreset(App& app, Sampler& sampler,
 <span v-click="2" style="display: none"></span>
 <span v-click="3" style="display: none"></span>
 
+<div v-click="4" class="stdexec-note">
+  built on <code>stdexec</code> · <code>std::execution</code>, C++26 · plus a little of my own
+</div>
+
 <!--
 Here's our synchronous version from the beginning. Correct, but blocking.
 
 [click]
-So what if we could keep exactly that shape, but with co_await? It still looks the same. But it doesn't block.
+And here's the non-blocking callback version, with QA's new feature. Fixed this time, so it's correct.
+But look at it. Three nested callbacks. And the cleanup is copied into every exit.
 
 [click]
-And the new feature QA asked for? Just a few more lines. In the same order. Not really a problem anymore.
+So what if we could keep the shape of the left side, but without blocking? Same feature. Same order as the synchronous version.
 
 [click]
 And this non-blocking version has a name: it's a coroutine.
+
+[click]
+Quick note on what I'm using: starts_on and friends are from std::execution, new in C++26. I use stdexec, its reference implementation. Plus a bit of extra work on top, for the things I found missing. More on that at the end.
 -->
 
 ---
@@ -649,10 +664,10 @@ ScopeExit finish([&] {
     finished = true;
 });
 
-auto tree = prepareSamplerTree(
+auto instrument = prepareInstrument(
     preset, mixer);
 
-sampler.installSamplerTree(tree);
+sampler.installInstrument(instrument);
 keySwitches.load(preset);
 ```
 
@@ -668,10 +683,10 @@ ScopeExit finish([&] {
     finished = true;
 });
 
-auto tree = co_await starts_on(workers,
-    prepareSamplerTree(preset, mixer));
+auto instrument = co_await starts_on(workers,
+    prepareInstrument(preset, mixer));
 
-sampler.installSamplerTree(tree);
+sampler.installInstrument(instrument);
 keySwitches.load(preset);
 ```
 
@@ -692,7 +707,6 @@ So let's have a quick look at what this funny syntax actually gives us back.
 
 [click]
 The difference: co_await. And starts_on says where the heavy part runs: on the workers.
-starts_on is from std::execution, new in C++26. I'm using stdexec, its reference implementation, plus a few things on top that I found missing. More on that at the end.
 
 [click]
 We still have the sequential order. It looks exactly the same.
@@ -718,7 +732,7 @@ And the difference: on the left, Main is blocked. Spinning wheel of death. On th
 
 ```cpp
 void loadPreset(...) {
-    auto tree = prepareSamplerTree(...);
+    auto instrument = prepareInstrument(...);
     // ...
     return;
 }
@@ -731,8 +745,8 @@ void loadPreset(...) {
 
 ```cpp {none|1|2-3|5}
 task<void> loadPreset(...) {
-    auto tree = co_await starts_on(workers,
-        prepareSamplerTree(...));
+    auto instrument = co_await starts_on(workers,
+        prepareInstrument(...));
     // ...
     co_return;
 }
@@ -850,7 +864,7 @@ And that loop is already an executor: a queue of work, and a loop that runs it. 
 The user clicks "load". The event loop calls onLoadClicked(), which calls loadPreset(). Our synchronous version from the beginning.
 
 [click]
-Now buildSamplerTree() runs. On Main. As long as it's on top of the stack, the event loop below can't do anything.
+Now buildInstrument() runs. On Main. As long as it's on top of the stack, the event loop below can't do anything.
 No paint events. No mouse events. That's QA's spinning wheel.
 
 [click]
@@ -867,9 +881,12 @@ clicks: 7
 <CallStacks scenario="coroutine" :step="$clicks" />
 
 <!--
-Same function. Two new lines: resumeOn(workers) and resumeOn(mainThread).
-Now we have two stacks, Main and a worker. Plus the coroutine frame in the middle.
-The worker is an executor too: its own queue, its own loop.
+Let me walk you through this picture first. We'll use it a few times. (pause)
+Top left: the code. Top right: what's happening right now.
+Below, three columns. Left: Main's call stack. Right: the worker's call stack. And in the middle: the coroutine frame, on the heap. That's where the locals live while no stack holds the function.
+(let it sink in)
+Same function as before. Two new lines: resumeOn(workers) and resumeOn(mainThread).
+And the worker is an executor too: its own queue, its own loop.
 
 [click]
 The click starts the coroutine on Main. Look at the stack: exactly the same as the synchronous version. Until the first co_await, it's just a function call.
@@ -881,13 +898,13 @@ Then: co_await resumeOn(workers). resumeOn means: put me in that thread's queue,
 And Main? Main is back in its event loop. Painting. Handling mouse events. (pause)
 
 [click]
-The worker takes us out of its queue and calls resume(). Same frame, different stack. Now we build the tree on the worker.
+The worker takes us out of its queue and calls resume(). Same frame, different stack. Now we build the instrument on the worker.
 
 [click]
 Done. co_await resumeOn(mainThread). Put me in Main's queue, and wake Main up.
 
 [click]
-Main's event loop picks us up and calls resume(). We install the tree on Main.
+Main's event loop picks us up and calls resume(). We install the instrument on Main.
 
 [click]
 Nobody waited. That's all an executor is: a queue, a loop that calls resume(), and a way to wake it up. resumeOn just picks which one.
@@ -950,12 +967,19 @@ One more. Back to queues, but slightly different.
 -->
 
 ---
-clicks: 3
+clicks: 4
 ---
 
 # Resumed by polling
 
 <CallStacks scenario="polled" :step="$clicks" />
+
+<div v-click="4" class="rt-caveats">
+  <h3>Conceptual only: not real-time safe</h3>
+  <span>frame freed on the audio thread</span>
+  <span>the queue must be lock-free</span>
+  <span>everything after the <code>co_await</code> runs in the audio callback</span>
+</div>
 
 <!--
 Sometimes the thread you want to hop on has no event queue you can wake up.
@@ -971,7 +995,11 @@ Next block: processBlock() checks the queue, finds us, and calls resume(). We ge
 [click]
 Now we're on the audio thread. The note plays, in this very block.
 It's the same as the executor. Just without the wakeup.
-(beat) One honest note: this is really just conceptual. As written, it wouldn't work. For example, the coroutine frame would be destroyed on the audio thread.
+
+[click]
+(beat) One honest note: this is really just conceptual. As written, this is not real-time safe.
+When the coroutine ends, its frame is freed on the audio thread. The queue we hop into has to be lock-free. And everything after the co_await runs inside the audio callback.
+So: a nice picture of polling. Not something to copy into your audio code.
 -->
 
 ---
@@ -985,6 +1013,7 @@ Let's put all four stacks next to each other.
 The top is always the same: handle.resume(), then our function body.
 Only the bottom changes. A thread pool. Main's event loop. The audio callback. Or just a callback from outside, like our download.
 (beat) The coroutine doesn't care who calls resume().
+So, to sum up: three ways to get resumed. An executor: a queue, a loop, a wakeup. An event: whoever delivers it resumes us inline. And polling: a queue without a wakeup.
 -->
 
 ---
@@ -997,7 +1026,7 @@ clicks: 4
 
 <!--
 Now let's zoom out, and look at time instead of stacks. Time runs downwards.
-On the left, the blocking version. Main runs the first part, then it builds the tree itself. Heavy work, right on Main. Nothing else runs. No painting.
+On the left, the blocking version. Main runs the first part, then it builds the instrument itself. Heavy work, right on Main. Nothing else runs. No painting.
 
 [click]
 On the right, the coroutine. Chunk one runs on Main. Then it hops to a worker.
@@ -1031,10 +1060,10 @@ Let's go through loadPreset, line by line.
 setLoading and the ScopeExit: Main. That's where we started.
 
 [click]
-resumeOn(workers). From here on: worker. buildSamplerTree runs there.
+resumeOn(workers). From here on: worker. buildInstrument runs there.
 
 [click]
-resumeOn(mainThread). Back on Main. We install the tree.
+resumeOn(mainThread). Back on Main. We install the instrument.
 
 [click]
 Now we ask the user to locate the samples. That's a dialog.
@@ -1074,11 +1103,11 @@ clicks: 4
 So how does it get home? Same start as before: loadPreset starts on Main.
 
 [click]
-Now it awaits prepareSamplerTree(). That's a child task. And starts_on says where the child runs: on the workers.
+Now it awaits prepareInstrument(). That's a child task. And starts_on says where the child runs: on the workers.
 So the child goes into the worker's queue, not started yet. The parent just waits for it.
 
 [click]
-The child builds the tree on the worker. Main is free. It paints.
+The child builds the instrument on the worker. Main is free. It paints.
 
 [click]
 The child is done. And now MainActorTask does what I used to write by hand: it posts the parent back into Main's queue.
@@ -1086,6 +1115,7 @@ The child is done. And now MainActorTask does what I used to write by hand: it p
 [click]
 Main drains its queue and resumes loadPreset. Back on Main, by itself.
 The resumeOn(mainThread) line is just gone.
+So: the way home is now part of the type. MainActorTask always comes back to Main. I don't have to remember it in every function.
 -->
 
 ---
@@ -1100,10 +1130,10 @@ MainActorTask<void> loadPreset(...) {
     app.setLoading(true);
     app.loadMixerState(preset);
 
-    auto tree = co_await starts_on(workers,
-        prepareSamplerTree(...));
+    auto instrument = co_await starts_on(workers,
+        prepareInstrument(...));
 
-    sampler.installSamplerTree(tree);
+    sampler.installInstrument(instrument);
     app.notifyPresetLoaded();
 }
 ```
@@ -1116,7 +1146,7 @@ MainActorTask<void> loadPreset(...) {
   </div>
   <div v-click="2">
     <h3>Only the heavy part leaves</h3>
-    <p><code>prepareSamplerTree()</code> → worker</p>
+    <p><code>prepareInstrument()</code> → worker</p>
   </div>
 </div>
 </div>
@@ -1128,28 +1158,24 @@ Why Main? Look at what loadPreset touches: the loading state, the mixer state, t
 That's where the plugin lives. The host calls us on Main. The editor runs on Main. The plugin state belongs to Main.
 
 [click]
-Only the heavy part leaves. prepareSamplerTree goes to the worker. Everything else stays home.
+Only the heavy part leaves. prepareInstrument goes to the worker. Everything else stays home.
 -->
 
 ---
 
-# The cozy part: main-owned state is serialized
+# The cozy part: everything on Main
 
 <div class="code-compare actor-safety">
-<div class="actor-region-code" :class="{
-  'show-first-region': $clicks === 1,
-  'show-suspension-boundary': $clicks === 2,
-  'show-second-region': $clicks >= 3,
-}">
+<div>
 
-```cpp
+```cpp {none|2,3,7-9|all}
 MainActorTask<void> loadPreset(...) {
     app.setLoading(true);
     auto mixer = app.mixerSnapshot();
 
-    auto tree = co_await starts_on(workers, prepareSamplerTree(...));
+    auto instrument = co_await starts_on(workers, prepareInstrument(...));
 
-    sampler.installSamplerTree(tree);
+    sampler.installInstrument(instrument);
     keySwitches.load(preset);
     app.setLoading(false);
 }
@@ -1157,27 +1183,21 @@ MainActorTask<void> loadPreset(...) {
 
 </div>
 <div class="actor-safety-notes">
-  <div v-click="1" class="safe-region-note"><strong>Nothing interleaves</strong></div>
-  <div v-click="2" class="suspension-note"><strong><code>co_await</code>: others may run</strong></div>
-  <div v-click="3" class="safe-region-note"><strong>No locks needed</strong></div>
+  <div v-click="1" class="safe-region-note"><strong>UI · plugin state: on Main</strong></div>
+  <div v-click="2" class="safe-region-note"><strong>No locks · no data races</strong></div>
 </div>
 </div>
 
 <!--
-And because everything runs on one home thread, we get something nice for free.
+And because everything runs on Main, we get something really cozy.
 
 [click]
-This first part runs in one piece. Nothing else on Main can run in between. No callback, no paint.
+Look at every line that touches state: the loading flag, the mixer, the sampler, the key switches. All of them run on Main. The same thread as the UI and the host callbacks.
 
 [click]
-Only at the co_await, other things can run on Main. A paint, a mouse click, another task.
-So if I read something before the co_await, like the mixer snapshot, it may have changed after it.
-
-[click]
-After the co_await: again one piece, nothing in between. And no locks.
-(beat) I still have to think at every co_await. But only there.
+So: no locks. No mutexes, no atomics, no data races. We just touch the plugin state, like in a plain single-threaded program.
+Only the heavy part leaves. And it comes back home with its result.
 -->
-
 ---
 
 # Yes! This is actually nice.
@@ -1188,8 +1208,8 @@ After the co_await: again one piece, nothing in between. And no locks.
 MainActorTask<void> loadPreset(...) {
     ScopeExit finish([&] { app.setLoading(false); });
 
-    auto tree = co_await starts_on(workers, prepareSamplerTree(...));
-    sampler.installSamplerTree(tree);
+    auto instrument = co_await starts_on(workers, prepareInstrument(...));
+    sampler.installInstrument(instrument);
 
     auto location = co_await askUserToLocateSamples(...);
     if (!location)
@@ -1215,7 +1235,12 @@ In the last callback version, that return was the bug: the spinner stayed foreve
 Here it's correct. co_return leaves the function, the ScopeExit runs, the spinner goes away.
 
 [click]
-Sequential. RAII. Main-affine. And structured: every child finishes before its parent continues. Nothing escapes its parent.
+So why is this so nice?
+Sequential: you read it top to bottom, and that's exactly the order it runs in.
+RAII: the ScopeExit cleans up on every path. Success, cancel, exception. There's no line to forget.
+Main-affine: every line runs on Main. So we can touch the UI and the plugin state without a single lock.
+And structured: every child finishes before its parent continues. Nothing escapes, nothing is left dangling.
+(beat) Everything the callbacks took away from us: it's back.
 (beat) But… hmm.
 -->
 
@@ -1230,7 +1255,7 @@ Sequential. RAII. Main-affine. And structured: every child finishes before its p
 
 ```cpp
 MainActorTask<void> loadPreset(...) {
-    auto tree = co_await starts_on(workers, prepareSamplerTree(...));
+    auto instrument = co_await starts_on(workers, prepareInstrument(...));
     auto samples = co_await starts_on(workers, loadSamples(...));
     // beautifully owned by the parent task
 }
@@ -1258,6 +1283,11 @@ void onLoadPreset(Preset preset) {
   <div v-click="4"><strong>Never even starts</strong></div>
 </div>
 
+<div v-click="5" class="scope-bridge">
+  <strong>Needed: a scope</strong>
+  <span>starts it · owns it · waits for it at the end</span>
+</div>
+
 <!--
 Okay. One tiny question.
 Inside the coroutine tree, everything is beautifully owned by the parent.
@@ -1274,6 +1304,11 @@ Nobody owns it.
 
 [click]
 It never even starts.
+
+[click]
+So we need an owner for tasks that have no parent. That's a scope.
+A scope starts the task, owns it, and at the end it waits for it. Like a parent, but for the top level.
+std::execution has the building block for that: counting_scope. My root_scope is a small layer on top of it.
 -->
 
 ---
@@ -1378,6 +1413,7 @@ onLoadPreset returns at once. But the task isn't detached. The destructor waits 
 
 [click]
 And if the user clicks again? Close the old one first, then spawn the new one. Latest wins.
+So: every task has an owner. Inside the tree, that's the parent. At the boundary, it's the scope.
 -->
 
 ---
@@ -1444,6 +1480,7 @@ The locals are destroyed, the ScopeExit runs. Spinner off. Plain RAII. And it al
 
 [click]
 And whoever awaits loadPreset gets "stopped" as well, and unwinds the same way. Up the chain, until the scope.
+So, to sum up: close() is a request. A wait that sees it ends with "stopped". And then the frame unwinds, and RAII cleans up. On Main.
 -->
 
 ---
@@ -1528,6 +1565,7 @@ And look where this happens: on top of ~Plugin(). (pause)
 
 [click]
 Now everything is joined. The loop ends, and the destructor returns to the host.
+So, to sum up: close_and_wait() asks everything to stop, and then drains Main's queue right there in the destructor, until every task has unwound. When it returns, nothing of ours is left running.
 -->
 
 ---
@@ -1621,8 +1659,8 @@ The piping is great. But the way I see it: I write as few lines of pipes as poss
 ```cpp
 void loadPreset(Preset preset) {
     app.setLoading(true);
-    prepareSamplerTreeAsync(preset, [&](auto tree) {
-        sampler.installSamplerTree(tree);
+    prepareInstrumentAsync(preset, [&](auto instrument) {
+        sampler.installInstrument(instrument);
         keySwitches.load(preset);
         askUserToLocateSamples([&](auto location) {
             if (!location) {
@@ -1652,8 +1690,8 @@ MainActorTask<void> loadPreset(Preset preset) {
     app.setLoading(true);
     ScopeExit finish([&] { app.setLoading(false); });
 
-    auto tree = co_await starts_on(workers, prepareSamplerTree(preset));
-    sampler.installSamplerTree(tree);
+    auto instrument = co_await starts_on(workers, prepareInstrument(preset));
+    sampler.installInstrument(instrument);
     keySwitches.load(preset);
 
     auto location = co_await askUserToLocateSamples();
@@ -1726,8 +1764,9 @@ MainActorTask<void> loadPreset(Preset preset) {
     app.setLoading(true);
     ScopeExit finish([&] { app.setLoading(false); });
 
-    auto tree = co_await starts_on(workers, prepareSamplerTree(preset));
-    sampler.installSamplerTree(tree);
+    auto instrument = co_await starts_on(workers,
+        prepareInstrument(preset));
+    sampler.installInstrument(instrument);
 
     auto location = co_await askUserToLocateSamples();
     if (!location)
@@ -1741,9 +1780,11 @@ MainActorTask<void> loadPreset(Preset preset) {
 </div>
 <div>
 
-- [github.com/konradglas/adc-coroutines-demo](https://github.com/konradglas/adc-coroutines-demo)
-- [github.com/konradglas/stdexec-affine](https://github.com/konradglas/stdexec-affine)
-- [github.com/NVIDIA/stdexec](https://github.com/NVIDIA/stdexec)
+<div class="eyebrow">GitHub</div>
+
+- [konradglas/adc-coroutines-demo](https://github.com/konradglas/adc-coroutines-demo)
+- [konradglas/stdexec-affine](https://github.com/konradglas/stdexec-affine)
+- [NVIDIA/stdexec](https://github.com/NVIDIA/stdexec)
 
 </div>
 </div>
@@ -2079,10 +2120,10 @@ co_await std::move(task);
 ScopedLock lock(stateMutex);
 auto mixer = app.mixerSnapshot();
 
-auto tree = co_await starts_on(workers,
-    prepareSamplerTree(preset, mixer));
+auto instrument = co_await starts_on(workers,
+    prepareInstrument(preset, mixer));
 
-sampler.installSamplerTree(std::move(tree));
+sampler.installInstrument(std::move(instrument));
 ```
 
 <div v-click="1" class="lock-held-caption">The coroutine scope survives suspension. So does the lock.</div>
@@ -2105,12 +2146,12 @@ MixerSnapshot mixer;
     mixer = app.mixerSnapshot();
 }
 
-auto tree = co_await starts_on(workers,
-    prepareSamplerTree(preset, mixer));
+auto instrument = co_await starts_on(workers,
+    prepareInstrument(preset, mixer));
 
 {
     ScopedLock lock(stateMutex);
-    sampler.installSamplerTree(std::move(tree));
+    sampler.installInstrument(std::move(instrument));
 }
 ```
 
@@ -2208,14 +2249,14 @@ loading.close() — what actually happens?
 
 ```cpp {none|1|1|2}
 stdexec::task loadPreset(...) {
-    auto tree = co_await starts_on(workers, prepareSamplerTree(...));
+    auto instrument = co_await starts_on(workers, prepareInstrument(...));
 }
 ```
 
 <div class="coroutine-keywords type-overview">
   <div v-click="1"><h3>Return object</h3><p>The <code>stdexec::task</code> object handed to the caller. It represents this coroutine.</p></div>
   <div v-click="2"><h3>Promise type</h3><p><code>stdexec::task::promise_type</code>: compiler-facing state stored inside the coroutine frame.</p></div>
-  <div v-click="3"><h3>Awaitable</h3><p><code>prepareSamplerTree(...)</code> returns one. It defines the suspension point: whether execution pauses, what runs next, and what value the coroutine receives when it continues.</p></div>
+  <div v-click="3"><h3>Awaitable</h3><p><code>prepareInstrument(...)</code> returns one. It defines the suspension point: whether execution pauses, what runs next, and what value the coroutine receives when it continues.</p></div>
 </div>
 
 <div v-click="4" class="takeaway">The return type defines the coroutine. Each awaitable defines one wait.</div>
@@ -2308,10 +2349,10 @@ struct MainActorTask::promise_type {
 <div class="eyebrow">The coroutine using the awaitable</div>
 
 ```cpp
-Task<void> prepareSamplerTree(...) {
+Task<void> prepareInstrument(...) {
     co_await ScheduleOn{workers};
 
-    buildExpensiveSamplerTree(preset, mixer);
+    buildExpensiveInstrument(preset, mixer);
 }
 ```
 
@@ -2335,7 +2376,7 @@ Task<void> prepareSamplerTree(...) {
   <div v-click="4" class="await-runtime-step active-resume-step">
     <span>4 · when that handle is resumed</span>
     <strong><code>awaiter.await_resume()</code></strong>
-    <small>The compiler calls it inside resumed <code>prepareSamplerTree()</code>; then building begins.</small>
+    <small>The compiler calls it inside resumed <code>prepareInstrument()</code>; then building begins.</small>
   </div>
 </div>
 </div>
@@ -2359,11 +2400,11 @@ Task<void> prepareSamplerTree(...) {
 <div class="eyebrow">Inside the worker operation</div>
 
 ```cpp
-Task<void> prepareSamplerTree(...) {
+Task<void> prepareInstrument(...) {
     co_await ScheduleOn{workers};
 
     // continues on a worker
-    buildExpensiveSamplerTree(preset, mixer);
+    buildExpensiveInstrument(preset, mixer);
 }
 ```
 
@@ -2394,7 +2435,7 @@ struct ScheduleOn {
 <div class="awaiter-grid schedule-steps">
   <div v-click="1"><h3><code>await_ready()</code></h3><p>Already on the pool? Continue immediately.</p></div>
   <div v-click="2"><h3><code>await_suspend()</code></h3><p><code>continuation</code> points to the packed-up coroutine state. Enqueue the job.</p></div>
-  <div v-click="3"><h3><code>continuation.resume()</code></h3><p>A worker runs the job and resumes <code>prepareSamplerTree()</code> there.</p></div>
+  <div v-click="3"><h3><code>continuation.resume()</code></h3><p>A worker runs the job and resumes <code>prepareInstrument()</code> there.</p></div>
   <div v-click="4"><h3><code>await_resume()</code></h3><p>The compiler calls this first; then execution continues after <code>co_await</code>.</p></div>
 </div>
 
@@ -2696,7 +2737,7 @@ Task<bool> loadSamplesAsync() {
 
   <div class="execution-lane worker-lane">
     <div class="lane-label">Worker pool</div>
-    <div v-click="2" class="lane-step"><code>prepareSamplerTree()</code><span>build expensive tree</span></div>
+    <div v-click="2" class="lane-step"><code>prepareInstrument()</code><span>build expensive instrument</span></div>
   </div>
 </div>
 
@@ -2772,7 +2813,7 @@ clicks: 4
 <!--
 same code, RAII style · minus the way back
 
-[click] worker builds the tree · fine so far
+[click] worker builds the instrument · fine so far
 
 [click] install() on the worker · Main paints the sampler → race
 
