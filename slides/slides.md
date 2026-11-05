@@ -636,7 +636,7 @@ And the new feature QA asked for? Just a few more lines. In the same order. Not 
 # What coroutines give back
 
 <div class="code-compare dense-code">
-<div>
+<div class="wheel-host">
 
 ```cpp
 ScopeExit finish([&] {
@@ -652,8 +652,10 @@ sampler.installSamplerTree(tree);
 keySwitches.load(preset);
 ```
 
+<span v-click="5" class="wheel-overlay"><img src="/spinning-wheel.png" alt="spinning wheel of death"></span>
+
 </div>
-<div v-click>
+<div v-click class="wheel-host">
 
 ```cpp
 ScopeExit finish([&] {
@@ -669,6 +671,8 @@ sampler.installSamplerTree(tree);
 keySwitches.load(preset);
 ```
 
+<span v-click="5" class="wheel-overlay struck-wheel"><img src="/spinning-wheel.png" alt="spinning wheel of death, struck out"></span>
+
 </div>
 </div>
 
@@ -678,10 +682,6 @@ keySwitches.load(preset);
   <div v-click><h3>RAII</h3></div>
 </div>
 
-<div v-click class="payoff-win">
-  <h3>Non-blocking</h3>
-  <span class="struck-wheel"><img src="/spinning-wheel.png" alt="spinning wheel of death"></span>
-</div>
 
 <!--
 So let's have a quick look at what this funny syntax actually gives us back.
@@ -699,7 +699,7 @@ All the dependencies between the lines are plainly visible.
 And we get RAII back. The ScopeExit fires at the end again, when the work is really done.
 
 [click]
-And it's not blocking. No more spinning wheel of death. (beat)
+And the difference: on the left, Main is blocked. Spinning wheel of death. On the right, it's not blocking. No more spinning wheel. (beat)
 -->
 
 ---
@@ -813,7 +813,7 @@ And here's the important part: the rest does not continue by itself.
 So the function falls apart into chunks. Chunk one runs until the first door. Then control goes back to the event loop.
 
 [click]
-Chunk two only runs when someone calls resume(). Who? Whatever delivers the answer. Hold that thought.
+Chunk two only runs when someone calls resume(). Who? Whatever delivers the answer. Most of the time, that's an executor. Hold that thought.
 
 [click]
 Chunk three: same question again. Someone has to call resume().
@@ -838,6 +838,7 @@ clicks: 3
 
 <!--
 This is Main's stack. Just its event loop, waiting for events.
+And that loop is already an executor: a queue of work, and a loop that runs it. It sleeps until something lands in the queue, then it wakes up and runs it. Remember that.
 
 [click]
 The user clicks "load". The event loop calls onLoadClicked(), which calls loadPreset(). Our synchronous version from the beginning.
@@ -862,6 +863,7 @@ clicks: 7
 <!--
 Same function. Two new lines: resumeOn(workers) and resumeOn(mainThread).
 Now we have two stacks, Main and a worker. Plus the coroutine frame in the middle.
+The worker is an executor too: its own queue, its own loop.
 
 [click]
 The click starts the coroutine on Main. Look at the stack: exactly the same as the synchronous version. Until the first co_await, it's just a function call.
@@ -882,7 +884,7 @@ Done. co_await resumeOn(mainThread). Put me in Main's queue, and wake Main up.
 Main's event loop picks us up and calls resume(). We install the tree on Main.
 
 [click]
-Nobody waited. resumeOn said: put me in that queue, and wake that thread up. Its loop called resume().
+Nobody waited. That's all an executor is: a queue, a loop that calls resume(), and a way to wake it up. resumeOn just picks which one.
 (beat) But often there is no queue to pick. Sometimes we're just waiting for something to arrive from the outside.
 -->
 

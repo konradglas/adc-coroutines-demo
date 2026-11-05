@@ -482,6 +482,38 @@ body,
   text-transform: uppercase;
 }
 
+.wheel-host {
+  display: grid;
+  align-self: start;
+}
+
+.wheel-host > * {
+  grid-area: 1 / 1;
+}
+
+.wheel-host > p {
+  margin: 0;
+  place-self: center;
+  z-index: 1;
+}
+
+.slidev-layout .wheel-overlay,
+.slidev-layout .wheel-overlay.struck-wheel {
+  position: relative;
+  display: block;
+  margin: 0;
+}
+
+.slidev-layout .wheel-overlay img {
+  display: block;
+  width: 5rem;
+  height: 5rem;
+}
+
+.slidev-layout .wheel-overlay.struck-wheel::after {
+  height: 5px;
+}
+
 .struck-wheel {
   position: relative;
   display: inline-block;
