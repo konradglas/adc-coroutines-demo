@@ -561,7 +561,7 @@ void loadPreset(App& app, Sampler& sampler,
 </div>
 <div v-click="1">
 
-<div class="eyebrow">Coroutine</div>
+<div class="eyebrow">{{ $clicks < 3 ? 'Non-blocking version' : 'Coroutine' }}</div>
 
 <div v-if="$clicks < 2">
 
@@ -620,6 +620,7 @@ task<void> loadPreset(App& app, Sampler& sampler,
 </div>
 
 <span v-click="2" style="display: none"></span>
+<span v-click="3" style="display: none"></span>
 
 <!--
 Here's our synchronous version from the beginning. Correct, but blocking.
@@ -629,6 +630,9 @@ So what if we could keep exactly that shape, but with co_await? It still looks t
 
 [click]
 And the new feature QA asked for? Just a few more lines. In the same order. Not really a problem anymore.
+
+[click]
+And this non-blocking version has a name: it's a coroutine.
 -->
 
 ---
@@ -925,7 +929,7 @@ clicks: 4
 <!--
 So let's write exactly that. startInstrument(): wait for both, then enable.
 _license and _samples are awaitable events: a slot you fill once with setValue(), and co_await with value().
-It starts. Nothing is there yet, so it suspends right away.
+The user selects the instrument, and that starts it. Inline, a plain call on Main. Nothing is there yet, so it suspends right away.
 
 [click]
 Main keeps doing its job. Events. Painting.
@@ -953,8 +957,8 @@ clicks: 3
 
 <!--
 Sometimes the thread you want to hop on has no event queue you can wake up.
-The audio thread, for example. It just keeps processing, no matter what we do.
-Someone presses a key. That happens on Main. We co_await the audio thread.
+The audio thread, for example. The host calls it every block, on its own schedule.
+Here's a little example: the user clicks a note on the on-screen MIDI keyboard. That click arrives on Main. But the note has to play on the audio thread. So we co_await the audio thread.
 
 [click]
 So we hop into its queue, and wait for it to come by the next time.

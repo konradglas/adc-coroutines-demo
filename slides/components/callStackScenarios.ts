@@ -340,14 +340,12 @@ export const scenarios: Record<string, CallStackScenario> = {
       {
         line: 2,
         label: "Started, suspended at once",
-        caption: "Started on Main. Neither is there yet, so it suspends right away.",
+        caption: "Started inline on Main, like a plain call. Neither is there yet, so it suspends right away.",
         threads: {
           Main: [
-            "body|startInstrument() (resume)",
-            "resume|handle.resume()",
-            "executor|MainExecutor::drain()",
-            "loop|NativeEventLoop::run()",
-            "loop|main()",
+            "body|startInstrument()",
+            "call|onInstrumentSelected()",
+            ...mainLoop,
           ],
         },
         heap: [{ name: "startInstrument", state: "suspended", note: "waiting for both" }],
