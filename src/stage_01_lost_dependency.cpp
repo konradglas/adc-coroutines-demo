@@ -8,15 +8,16 @@ void loadPreset(demo::App &app, demo::Sampler &sampler, demo::CallbackWorkers &w
     app.loadMixerState(preset);
     const auto mixer = app.mixerSnapshot();
 
-    workers.run([preset, mixer] { return demo::prepareSamplerTree(preset, mixer); },
-                [&](demo::PreparedSamplerTree tree) {
-                    sampler.installSamplerTree(tree);
+    workers.run([preset, mixer] { return demo::prepareInstrument(preset, mixer); },
+                [&](demo::PreparedInstrument instrument) {
+                    sampler.installInstrument(instrument);
                     app.notifyPresetLoaded(); // Fires again. Surely harmless.
                     samplerFinished = true;
                 });
 
     // These statements still run now, not when loadSamplerAsync finishes.
-    sampler.rebuildKeySwitchMap(); // Reads the tree currently installed in sampler.
+    sampler
+        .rebuildKeySwitchMap(); // Reads the instrument currently installed in sampler.
     app.notifyPresetLoaded();
 }
 

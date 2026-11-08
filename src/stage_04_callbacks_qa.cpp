@@ -21,10 +21,10 @@ class PresetLoader : public std::enable_shared_from_this<PresetLoader> {
 
         _workers.run(
             [preset, mixer, token]() mutable {
-                demo::OperationResult<demo::PreparedSamplerTree> result;
+                demo::OperationResult<demo::PreparedInstrument> result;
                 try {
                     result.value =
-                        demo::prepareSamplerTree(std::move(preset), mixer, token);
+                        demo::prepareInstrument(std::move(preset), mixer, token);
                     result.cancelled = !result.value.has_value();
                 } catch (...) {
                     result.error = std::current_exception();
@@ -43,14 +43,14 @@ class PresetLoader : public std::enable_shared_from_this<PresetLoader> {
 
   private:
     void completeSampler(std::uint64_t request, std::stop_token token,
-                         demo::OperationResult<demo::PreparedSamplerTree> result) {
+                         demo::OperationResult<demo::PreparedInstrument> result) {
         if (request != _currentRequest)
             return;
 
         if (!continueRequest(result))
             return;
 
-        _sampler.installSamplerTree(*result.value);
+        _sampler.installInstrument(*result.value);
         _sampler.rebuildKeySwitchMap();
 
         const auto missingSamples = _sampler.missingSamples();

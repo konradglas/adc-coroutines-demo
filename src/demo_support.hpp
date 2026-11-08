@@ -27,7 +27,7 @@ struct MixerSnapshot {
     std::vector<std::string> activeMicrophones;
 };
 
-struct PreparedSamplerTree {
+struct PreparedInstrument {
     std::string presetName;
     std::vector<std::string> activeMicrophones;
     std::vector<std::string> articulations;
@@ -77,7 +77,7 @@ class Sampler {
   public:
     Sampler();
 
-    void installSamplerTree(const PreparedSamplerTree &tree);
+    void installInstrument(const PreparedInstrument &instrument);
     void rebuildKeySwitchMap();
     [[nodiscard]] MissingSamplesRequest missingSamples() const;
     void installSamples(LoadedSamples samples);
@@ -118,10 +118,10 @@ class App {
     std::vector<std::string> _activeMicrophones;
 };
 
-PreparedSamplerTree prepareSamplerTree(Preset preset, MixerSnapshot mixer);
+PreparedInstrument prepareInstrument(Preset preset, MixerSnapshot mixer);
 
-std::optional<PreparedSamplerTree>
-prepareSamplerTree(Preset preset, MixerSnapshot mixer, std::stop_token stopToken);
+std::optional<PreparedInstrument> prepareInstrument(Preset preset, MixerSnapshot mixer,
+                                                    std::stop_token stopToken);
 
 SampleLibraryLocation askUserToLocateSamples(MissingSamplesRequest request);
 

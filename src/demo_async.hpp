@@ -7,12 +7,12 @@
 namespace demo {
 
 template <class Scheduler>
-auto prepareSamplerTree(Preset preset, MixerSnapshot mixer, Scheduler worker) {
+auto prepareInstrument(Preset preset, MixerSnapshot mixer, Scheduler worker) {
     return stdexec::starts_on(std::move(worker),
                               stdexec::just(std::move(preset), std::move(mixer)) |
                                   stdexec::then([](Preset preset, MixerSnapshot mixer) {
-                                      return prepareSamplerTree(std::move(preset),
-                                                                std::move(mixer));
+                                      return prepareInstrument(std::move(preset),
+                                                               std::move(mixer));
                                   }));
 }
 

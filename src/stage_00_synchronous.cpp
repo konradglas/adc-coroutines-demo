@@ -7,9 +7,9 @@ void loadPreset(demo::App &app, demo::Sampler &sampler, demo::Preset preset) {
     app.loadMixerState(preset);
     auto mixer = app.mixerSnapshot();
 
-    auto tree = demo::prepareSamplerTree(std::move(preset), std::move(mixer));
+    auto instrument = demo::prepareInstrument(std::move(preset), std::move(mixer));
 
-    sampler.installSamplerTree(tree);
+    sampler.installInstrument(instrument);
     sampler.rebuildKeySwitchMap();
 
     app.notifyPresetLoaded();

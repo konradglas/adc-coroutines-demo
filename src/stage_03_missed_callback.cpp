@@ -6,9 +6,9 @@ void loadPreset(demo::App &app, demo::Sampler &sampler, demo::CallbackWorkers &w
     app.loadMixerState(preset);
     const auto mixer = app.mixerSnapshot();
 
-    workers.run([preset, mixer] { return demo::prepareSamplerTree(preset, mixer); },
-                [&](demo::PreparedSamplerTree tree) {
-                    sampler.installSamplerTree(tree);
+    workers.run([preset, mixer] { return demo::prepareInstrument(preset, mixer); },
+                [&](demo::PreparedInstrument instrument) {
+                    sampler.installInstrument(instrument);
                     sampler.rebuildKeySwitchMap();
 
                     // Fine. Let's implement QA's "small" feature.

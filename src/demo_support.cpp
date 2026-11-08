@@ -58,14 +58,14 @@ App::App() : _mainThread(std::this_thread::get_id()) {
 
 Sampler::Sampler() : _mainThread(std::this_thread::get_id()) {}
 
-void Sampler::installSamplerTree(const PreparedSamplerTree &tree) {
+void Sampler::installInstrument(const PreparedInstrument &instrument) {
     requireMainThread();
-    _samplerPreset = tree.presetName;
-    _samplesPreset = tree.presetName;
-    _articulations = tree.articulations;
-    _missingLibrary = tree.missingLibrary;
-    _missingSamples = tree.missingSamples;
-    print("main", "installed sampler tree: " + _samplerPreset);
+    _samplerPreset = instrument.presetName;
+    _samplesPreset = instrument.presetName;
+    _articulations = instrument.articulations;
+    _missingLibrary = instrument.missingLibrary;
+    _missingSamples = instrument.missingSamples;
+    print("main", "installed instrument: " + _samplerPreset);
 }
 
 void Sampler::rebuildKeySwitchMap() {
@@ -143,20 +143,20 @@ void App::requireMainThread() const {
         throw std::logic_error("live application state escaped the main thread");
 }
 
-PreparedSamplerTree prepareSamplerTree(Preset preset, MixerSnapshot mixer) {
+PreparedInstrument prepareInstrument(Preset preset, MixerSnapshot mixer) {
     auto result =
-        prepareSamplerTree(std::move(preset), std::move(mixer), std::stop_token{});
+        prepareInstrument(std::move(preset), std::move(mixer), std::stop_token{});
     return std::move(*result);
 }
 
-std::optional<PreparedSamplerTree>
-prepareSamplerTree(Preset preset, MixerSnapshot mixer, std::stop_token stopToken) {
-    printCurrentThread("preparing sampler tree: " + preset.name);
+std::optional<PreparedInstrument> prepareInstrument(Preset preset, MixerSnapshot mixer,
+                                                    std::stop_token stopToken) {
+    printCurrentThread("preparing instrument: " + preset.name);
 
     for (int step = 0; step != 6; ++step) {
         std::this_thread::sleep_for(30ms);
         if (stopToken.stop_requested()) {
-            printCurrentThread("cancelled sampler tree: " + preset.name);
+            printCurrentThread("cancelled instrument: " + preset.name);
             return std::nullopt;
         }
     }
@@ -169,8 +169,8 @@ prepareSamplerTree(Preset preset, MixerSnapshot mixer, std::stop_token stopToken
     for (const auto &articulation : preset.articulations)
         missingSamples.push_back(articulation + ".sample");
 
-    printCurrentThread("prepared sampler tree: " + preset.name);
-    return PreparedSamplerTree{
+    printCurrentThread("prepared instrument: " + preset.name);
+    return PreparedInstrument{
         preset.name,
         std::move(mixer.activeMicrophones),
         std::move(preset.articulations),

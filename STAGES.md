@@ -13,8 +13,8 @@ main queue. The user interaction is simulated, but it has the same completion sh
 an asynchronous file dialog in a GUI application.
 
 The sampler deliberately exposes a subtle dependency from the real architecture:
-`rebuildKeySwitchMap()` takes no tree argument. It derives the map from the sampler tree
-that is already installed. Correctness therefore depends on installing the new tree
+`rebuildKeySwitchMap()` takes no instrument argument. It derives the map from the instrument
+that is already installed. Correctness therefore depends on installing the new instrument
 before rebuilding the map, even though that dependency is not visible in the function
 signature.
 
@@ -28,7 +28,7 @@ Source: [`src/stage_00_synchronous.cpp`](src/stage_00_synchronous.cpp)
 ### What I think is happening
 
 The preset load is straightforward and correct. Mixer state is applied, the sampler
-tree is prepared and installed into the live sampler, the sampler rebuilds its
+instrument is prepared and installed into the live sampler, the sampler rebuilds its
 key-switch map, and `PresetLoaded` is sent when the preset is ready. Missing samples
 remain missing; interactive recovery is not a feature yet.
 
@@ -40,7 +40,7 @@ early return, or exception.
 That understanding is accurate. Every subsystem ends with the same preset and QA's
 consistency check passes.
 
-However, tree preparation executes on the main thread. During that operation the
+However, instrument preparation executes on the main thread. During that operation the
 application cannot process normal GUI events.
 
 > QA: “Loading a preset freezes the application.”
@@ -48,7 +48,7 @@ application cannot process normal GUI events.
 ### What it demonstrates
 
 - Statement order directly expresses every dependency, including the implicit one
-  between installing the sampler tree and rebuilding its derived key-switch map.
+  between installing the instrument and rebuilding its derived key-switch map.
 - Function return means the complete operation has finished.
 - Errors and cleanup follow ordinary C++ control flow and RAII.
 - Correct synchronous code can still be unacceptable in an interactive application.
@@ -60,7 +60,7 @@ Source: [`src/stage_01_lost_dependency.cpp`](src/stage_01_lost_dependency.cpp)
 ### What I think is happening
 
 Sampler preparation is the expensive part, so it is moved to a worker. Its completion
-callback installs the new tree. The rest of the existing load function appears to
+callback installs the new instrument. The rest of the existing load function appears to
 remain in the same order.
 
 The callback even sends another `PresetLoaded` notification after installation. An
@@ -70,14 +70,14 @@ extra notification seems harmless.
 
 `workers.run()` starts an operation and returns immediately. The following statements
 do not wait for its callback. In particular, `rebuildKeySwitchMap()` reads the live
-sampler's current tree; it does not know that a replacement tree is being prepared:
+sampler's current instrument; it does not know that a replacement instrument is being prepared:
 
-- The key-switch map is rebuilt from the initial sampler tree.
-- `PresetLoaded` is sent before the new sampler tree exists.
+- The key-switch map is rebuilt from the initial instrument.
+- `PresetLoaded` is sent before the new instrument exists.
 - `ScopeExit` turns the loading indicator off when `loadPreset()` returns, not when the
   asynchronous operation completes.
 
-The worker eventually installs the new sampler tree and sends `PresetLoaded` again.
+The worker eventually installs the new instrument and sends `PresetLoaded` again.
 QA now sees the new mixer and sampler alongside the old key-switch state.
 
 ### What it demonstrates
@@ -85,7 +85,7 @@ QA now sees the new mixer and sampler alongside the old key-switch state.
 - Starting asynchronous work does not preserve the dependency represented by the next
   source-code statement.
 - Main-thread affinity prevents data races on the sampler, but it does not make the
-  installed tree the logically correct version.
+  installed instrument the logically correct version.
 - A lexical guard cannot cover work that outlives its scope.
 - A notification called “loaded” becomes ambiguous once completion is fragmented.
 - This is a deterministic ordering bug; no data race is required.
@@ -98,9 +98,9 @@ Source: [`src/stage_02_callbacks_ship_it.cpp`](src/stage_02_callbacks_ship_it.cp
 
 The dependent main-thread operations are moved into the preparation callback:
 
-1. Prepare the sampler tree.
+1. Prepare the instrument.
 2. Install it into the live sampler.
-3. Rebuild the key-switch map from the newly installed tree.
+3. Rebuild the key-switch map from the newly installed instrument.
 4. Notify the GUI and clear the spinner.
 
 The original preset load now works without blocking main. The state check passes.
@@ -138,7 +138,7 @@ Source: [`src/stage_03_missed_callback.cpp`](src/stage_03_missed_callback.cpp)
 ### What I think is happening
 
 The developer reconsiders and implements QA's request. After installing the sampler
-tree, the callback asks the user to locate the missing library. Its callback starts
+instrument, the callback asks the user to locate the missing library. Its callback starts
 sample loading, whose callback finally installs the samples and completes the preset
 load.
 
@@ -153,7 +153,7 @@ whole preset load:
 - `finished` is never set.
 - The loading indicator is never cleared.
 - No final success or cancellation notification is sent.
-- The sampler tree and key-switch map contain the new preset, but its missing samples
+- The instrument and key-switch map contain the new preset, but its missing samples
   remain unresolved.
 
 The test harness stops after observing the dialog callback so that the executable does
@@ -221,7 +221,7 @@ new feature:
 
 1. Apply main-owned mixer state.
 2. Await sampler preparation on a worker.
-3. Install the tree into the main-thread-bound sampler and rebuild its derived state.
+3. Install the instrument into the main-thread-bound sampler and rebuild its derived state.
 4. Await the user's library selection.
 5. Await sample loading on a worker.
 6. Install the samples and notify the GUI.
@@ -234,8 +234,8 @@ The trace shows the intended affinity transitions:
 
 ```text
 main   -> capture application state
-worker -> prepare sampler tree
-main   -> install tree and rebuild key switches
+worker -> prepare instrument
+main   -> install instrument and rebuild key switches
 user   -> resolve missing library
 worker -> load samples
 main   -> install samples, notify, and clear loading state

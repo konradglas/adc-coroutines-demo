@@ -15,10 +15,10 @@ MainActorTask<void> loadPreset(demo::App &app, demo::Sampler &sampler,
     app.loadMixerState(preset);
     auto mixer = app.mixerSnapshot();
 
-    auto tree =
-        co_await demo::prepareSamplerTree(std::move(preset), std::move(mixer), worker);
+    auto instrument =
+        co_await demo::prepareInstrument(std::move(preset), std::move(mixer), worker);
 
-    sampler.installSamplerTree(tree);
+    sampler.installInstrument(instrument);
     sampler.rebuildKeySwitchMap();
 
     auto location =
@@ -39,9 +39,8 @@ int main() {
     affine::root_scope scope(
         [&](std::function<void()> callback) { hostQueue.post(std::move(callback)); });
 
-    auto loading =
-        affine::spawn(loadPreset(app, sampler, demo::concertGrand(), workers.get_scheduler()),
-                      scope);
+    auto loading = affine::spawn(
+        loadPreset(app, sampler, demo::concertGrand(), workers.get_scheduler()), scope);
     hostQueue.pumpUntil([&] { return loading.completed(); });
     scope.shutdown_and_wait();
 
