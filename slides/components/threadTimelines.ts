@@ -1,7 +1,9 @@
 // Thread timelines for <ThreadTimeline>. Time runs downwards in abstract units.
-// `at` is the click on which an item appears (default 0).
+// `at` is the click on which an item appears (default 0); `until` the click on which it
+// disappears again.
 
-export type BlockKind = 'a' | 'b' | 'other' | 'blocked'
+// 'stopping' is an overlay: stop was requested, the work below still runs.
+export type BlockKind = 'a' | 'b' | 'other' | 'blocked' | 'ok' | 'stopping'
 
 export interface TimelineBlock {
   lane: string
@@ -10,6 +12,7 @@ export interface TimelineBlock {
   kind: BlockKind
   label?: string
   at?: number
+  until?: number
 }
 
 export interface TimelineHop {
@@ -17,6 +20,16 @@ export interface TimelineHop {
   to: [string, number]
   kind: 'a' | 'b'
   at?: number
+  until?: number
+}
+
+// A request from one block to another (e.g. close()), drawn straight and on top.
+export interface TimelineSignal {
+  from: [string, number]
+  to: [string, number]
+  label?: string
+  at?: number
+  until?: number
 }
 
 export interface TimelinePanel {
@@ -25,6 +38,7 @@ export interface TimelinePanel {
   length: number
   blocks: TimelineBlock[]
   hops?: TimelineHop[]
+  signals?: TimelineSignal[]
 }
 
 export interface Timeline {
@@ -89,6 +103,51 @@ export const timelines: Record<string, Timeline> = {
           { from: ['Main', 1], to: ['Worker', 1.1], kind: 'a', at: 2 },
           { from: ['Main', 2.9], to: ['Audio', 3.2], kind: 'b', at: 3 },
           { from: ['Worker', 4], to: ['Main', 4.2], kind: 'a', at: 4 },
+        ],
+      },
+    ],
+  },
+  reentrancy: {
+    legend: { a: 'load A', b: 'load B', other: 'spinner on', blocked: 'spinner off' },
+    labels: [
+      'A loads',
+      'B cancels A',
+      'A unwinds · spinner off',
+      'Each task: its own share',
+      'Spinner stays on',
+    ],
+    captions: [],
+    panels: [
+      {
+        title: 'Main is one actor',
+        lanes: ['Main', 'Worker', 'Worker ', 'Spinner'],
+        length: 6,
+        blocks: [
+          { lane: 'Main', from: 0, to: 0.6, kind: 'a', label: 'A' },
+          { lane: 'Worker', from: 0.7, to: 2.6, kind: 'a', label: 'load' },
+          { lane: 'Worker', from: 1.85, to: 2.6, kind: 'stopping', at: 1 },
+          { lane: 'Main', from: 1.4, to: 2.0, kind: 'b', label: 'B', at: 1 },
+          { lane: 'Worker ', from: 2.1, to: 5.2, kind: 'b', label: 'load', at: 1 },
+          { lane: 'Main', from: 2.8, to: 3.3, kind: 'a', label: '~A', at: 2 },
+          { lane: 'Main', from: 2.8, to: 3.3, kind: 'stopping', at: 2 },
+          { lane: 'Main', from: 5.4, to: 5.9, kind: 'b', label: 'B', at: 1 },
+          // setLoading(true/false): one flag
+          { lane: 'Spinner', from: 0, to: 5.9, kind: 'other', label: 'on', until: 2 },
+          { lane: 'Spinner', from: 0, to: 3.3, kind: 'other', label: 'on', at: 2, until: 4 },
+          { lane: 'Spinner', from: 3.3, to: 5.9, kind: 'blocked', label: 'off', at: 2, until: 4 },
+          // beginLoading(): a count
+          { lane: 'Spinner', from: 0, to: 1.4, kind: 'ok', label: '1', at: 4 },
+          { lane: 'Spinner', from: 1.4, to: 3.3, kind: 'ok', label: '2', at: 4 },
+          { lane: 'Spinner', from: 3.3, to: 5.9, kind: 'ok', label: '1', at: 4 },
+        ],
+        hops: [
+          { from: ['Main', 0.6], to: ['Worker', 0.7], kind: 'a' },
+          { from: ['Main', 2.0], to: ['Worker ', 2.1], kind: 'b', at: 1 },
+          { from: ['Worker', 2.6], to: ['Main', 2.8], kind: 'a', at: 2 },
+          { from: ['Worker ', 5.2], to: ['Main', 5.4], kind: 'b', at: 1 },
+        ],
+        signals: [
+          { from: ['Main', 1.85], to: ['Worker', 1.85], label: 'close()', at: 1 },
         ],
       },
     ],

@@ -27,7 +27,7 @@ const width = (p: TimelinePanel) => side * 2 + (p.lanes.length - 1) * laneGap
 const height = (p: TimelinePanel) => top + p.length * unit + 18
 const laneX = (p: TimelinePanel, lane: string) => side + p.lanes.indexOf(lane) * laneGap
 const y = (t: number) => top + t * unit
-const shown = (at?: number) => (at ?? 0) <= props.step
+const shown = (at?: number, until?: number) => (at ?? 0) <= props.step && (until === undefined || props.step < until)
 const vertical = (b: { from: number, to: number, label?: string }) => b.to - b.from >= 2 && (b.label?.length ?? 0) > 3
 
 function hopPath(p: TimelinePanel, from: [string, number], to: [string, number]) {
@@ -44,6 +44,8 @@ const colors: Record<BlockKind, string> = {
   b: '#9b6bff',
   other: '#3a3a3a',
   blocked: '#ff4fa8',
+  ok: '#5fe08f',
+  stopping: 'none',
 }
 </script>
 
@@ -58,6 +60,13 @@ const colors: Record<BlockKind, string> = {
               <rect width="7" height="7" fill="rgba(255, 79, 168, 0.16)" />
               <line x1="0" y1="0" x2="0" y2="7" stroke="rgba(255, 79, 168, 0.55)" stroke-width="2.5" />
             </pattern>
+            <pattern :id="`tt-stopping-${pi}`" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <line x1="0" y1="0" x2="0" y2="7" stroke="rgba(0, 0, 0, 0.5)" stroke-width="3" />
+            </pattern>
+            <marker :id="`tt-signal-${pi}`" viewBox="0 0 8 8" refX="7" refY="4"
+              markerWidth="7" markerHeight="7" orient="auto">
+              <path d="M 0 0 L 8 4 L 0 8 z" :fill="colors.blocked" />
+            </marker>
             <marker v-for="k in ['a', 'b']" :id="`tt-arrow-${pi}-${k}`" :key="k" viewBox="0 0 8 8" refX="4" refY="4"
               markerWidth="6" markerHeight="6" orient="auto-start-reverse">
               <path d="M 0 0 L 8 4 L 0 8 z" :fill="colors[k as BlockKind]" />
@@ -73,23 +82,40 @@ const colors: Record<BlockKind, string> = {
           <!-- Hops sit below the blocks, so a hop crossing another lane passes behind its work. -->
           <path
             v-for="(h, i) in p.hops ?? []" :key="'hop' + i"
-            class="tt-item tt-hop" :class="{ hidden: !shown(h.at) }"
+            class="tt-item tt-hop" :class="{ hidden: !shown(h.at, h.until) }"
             :d="hopPath(p, h.from, h.to)" :stroke="colors[h.kind]" :marker-end="`url(#tt-arrow-${pi}-${h.kind})`"
           />
 
-          <g v-for="(b, i) in p.blocks" :key="i" class="tt-item" :class="{ hidden: !shown(b.at) }">
-            <rect
-              :x="laneX(p, b.lane) - blockWidth / 2" :y="y(b.from)" :width="blockWidth" :height="(b.to - b.from) * unit"
-              :rx="Math.min(9, (b.to - b.from) * unit / 2)"
-              :fill="b.kind === 'blocked' ? `url(#tt-hatch-${pi})` : colors[b.kind]"
-              :stroke="b.kind === 'blocked' ? colors.blocked : 'none'" stroke-width="1.2"
-            />
+          <rect
+            v-for="(b, i) in p.blocks" :key="i" class="tt-item" :class="{ hidden: !shown(b.at, b.until) }"
+            :x="laneX(p, b.lane) - blockWidth / 2" :y="y(b.from)" :width="blockWidth" :height="(b.to - b.from) * unit"
+            :rx="Math.min(9, (b.to - b.from) * unit / 2)"
+            :fill="b.kind === 'blocked' ? `url(#tt-hatch-${pi})` : b.kind === 'stopping' ? `url(#tt-stopping-${pi})` : colors[b.kind]"
+            :stroke="b.kind === 'blocked' ? colors.blocked : 'none'" stroke-width="1.2"
+          />
+
+          <!-- Labels after all blocks, so overlays never cover them. -->
+          <template v-for="(b, i) in p.blocks" :key="'label' + i">
             <text
               v-if="b.label && (b.to - b.from) * unit >= 12"
-              class="tt-label" :class="[b.kind, { vertical: vertical(b) }]"
+              class="tt-item tt-label" :class="[b.kind, { vertical: vertical(b), hidden: !shown(b.at, b.until) }]"
               :x="laneX(p, b.lane)" :y="y((b.from + b.to) / 2)"
               :transform="vertical(b) ? `rotate(-90 ${laneX(p, b.lane)} ${y((b.from + b.to) / 2)})` : undefined"
             >{{ b.label }}</text>
+          </template>
+
+          <!-- Signals sit on top: they point from one block's edge to another's. -->
+          <g v-for="(sg, i) in p.signals ?? []" :key="'sig' + i" class="tt-item" :class="{ hidden: !shown(sg.at, sg.until) }">
+            <line
+              class="tt-signal"
+              :x1="laneX(p, sg.from[0]) + blockWidth / 2 + 2" :y1="y(sg.from[1])"
+              :x2="laneX(p, sg.to[0]) - blockWidth / 2 - 3" :y2="y(sg.to[1])"
+              :stroke="colors.blocked" :marker-end="`url(#tt-signal-${pi})`"
+            />
+            <text
+              v-if="sg.label" class="tt-signal-label"
+              :x="(laneX(p, sg.from[0]) + laneX(p, sg.to[0])) / 2" :y="y((sg.from[1] + sg.to[1]) / 2) - 6"
+            >{{ sg.label }}</text>
           </g>
         </svg>
       </div>
@@ -192,6 +218,18 @@ const colors: Record<BlockKind, string> = {
   stroke-width: 1.4;
 }
 
+.tt-signal {
+  stroke-width: 2;
+}
+
+.tt-signal-label {
+  fill: #ffb3d9;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 8.5px;
+  font-weight: 600;
+  text-anchor: middle;
+}
+
 .tt-footer {
   align-items: baseline;
   display: flex;
@@ -233,6 +271,7 @@ const colors: Record<BlockKind, string> = {
 .tt-legend i.a { background: #fe4f00; }
 .tt-legend i.b { background: #9b6bff; }
 .tt-legend i.other { background: #3a3a3a; }
+.tt-legend i.ok { background: #5fe08f; }
 .tt-legend i.blocked {
   background: repeating-linear-gradient(45deg, rgba(255, 79, 168, 0.55) 0 2px, rgba(255, 79, 168, 0.16) 2px 5px);
   border: 1px solid #ff4fa8;

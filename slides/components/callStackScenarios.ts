@@ -600,7 +600,7 @@ export const scenarios: Record<string, CallStackScenario> = {
       "}",
       "",
       "MainActorTask<void> loadPreset(Preset preset) {",
-      "  ScopeExit finish([&] { app.setLoading(false); });",
+      "  auto busy = app.beginLoading();",
       "  auto samples = co_await starts_on(workers, loadSamples(preset));",
       "  sampler.installSamples(samples);",
       "}",
@@ -626,7 +626,7 @@ export const scenarios: Record<string, CallStackScenario> = {
         },
         status: { Worker: "loading samples" },
         heap: [
-          { name: "loadPreset", state: "suspended", note: "awaits child", locals: ["preset", "finish"] },
+          { name: "loadPreset", state: "suspended", note: "awaits child", locals: ["preset", "busy"] },
           { name: "loadSamples", state: "running", note: "on Worker" },
         ],
       },
@@ -652,7 +652,7 @@ export const scenarios: Record<string, CallStackScenario> = {
         },
         status: { Main: "in ~Plugin()", Worker: "loading samples" },
         heap: [
-          { name: "loadPreset", state: "suspended", note: "stop requested", locals: ["preset", "finish"] },
+          { name: "loadPreset", state: "suspended", note: "stop requested", locals: ["preset", "busy"] },
           { name: "loadSamples", state: "running", note: "on Worker" },
         ],
       },
@@ -677,17 +677,17 @@ export const scenarios: Record<string, CallStackScenario> = {
         },
         status: { Main: "in ~Plugin()" },
         heap: [
-          { name: "loadPreset", state: "suspended", note: "stopped · in Main queue", locals: ["preset", "finish"] },
+          { name: "loadPreset", state: "suspended", note: "stopped · in Main queue", locals: ["preset", "busy"] },
           { name: "loadSamples", state: "done", note: "destroyed" },
         ],
       },
       {
         line: [4, 10],
         label: "drain() unwinds it on top of ~Plugin()",
-        caption: "drain() delivers the stopped signal: loadPreset is never resumed, its frame is destroyed and ScopeExit turns the spinner off, all on top of the destructor.",
+        caption: "drain() delivers the stopped signal: loadPreset is never resumed, its frame is destroyed and busy gives back its share of the spinner, all on top of the destructor.",
         threads: {
           Main: [
-            "call|~ScopeExit() → setLoading(false)",
+            "call|~Busy() → spinner off",
             "call|frame.destroy()",
             "body|loadPreset: set_stopped()",
             "executor|loop.drain()",
@@ -697,7 +697,7 @@ export const scenarios: Record<string, CallStackScenario> = {
           ],
           Worker: workerIdle,
         },
-        heap: [{ name: "loadPreset", state: "suspended", note: "never resumed → destroyed", locals: ["preset", "finish"] }],
+        heap: [{ name: "loadPreset", state: "suspended", note: "never resumed → destroyed", locals: ["preset", "busy"] }],
       },
       {
         line: 3,

@@ -2690,3 +2690,60 @@ body,
   color: var(--slide-muted);
   font-size: 0.85rem;
 }
+
+/* Actor reentrancy */
+.reentrancy-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1.2rem;
+  align-items: start;
+}
+
+.reentrancy-code {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 0.4rem;
+}
+
+.reentrancy-code pre,
+.reentrancy-code .slidev-code-wrapper {
+  height: auto;
+  margin: 0 !important;
+}
+
+.thread-timeline.compact .tt-caption.label {
+  font-size: 0.8rem !important;
+  white-space: nowrap;
+}
+
+.thread-timeline.compact .tt-legend {
+  gap: 0.6rem !important;
+  font-size: 0.6rem !important;
+}
+
+
+
+.owned-code {
+  position: relative;
+}
+
+.owner-tag {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.6rem;
+  font-size: 0.62rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 0.3rem;
+}
+
+.owner-tag.shared {
+  color: #ffb3d9;
+  background: rgba(255, 79, 168, 0.16);
+  border: 1px solid #ff4fa8;
+}
+
+.owner-tag.own {
+  color: #5fe08f;
+  background: #0f2418;
+  border: 1px solid #2f8a55;
+}

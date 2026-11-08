@@ -1484,6 +1484,71 @@ So, to sum up: close() is a request. A wait that sees it ends with "stopped". An
 -->
 
 ---
+clicks: 4
+---
+
+# Actor reentrancy
+
+<div class="reentrancy-layout">
+<div class="reentrancy-code">
+
+<div class="owned-code">
+
+```cpp {all|all|3|all}
+app.setLoading(true);
+ScopeExit finish([&] {
+    app.setLoading(false);
+});
+```
+
+<span v-click="2" class="owner-tag shared">app's flag · not A's</span>
+</div>
+
+<div v-click="3" class="owned-code">
+
+```cpp
+auto busy = app.beginLoading();
+```
+
+<span class="owner-tag own">busy · in A's frame</span>
+</div>
+
+<div v-click="3">
+
+```cpp
+Busy App::beginLoading() { ++count; return {this}; }
+Busy::~Busy()            { --app->count; }
+bool App::isLoading()    { return count > 0; }
+```
+
+</div>
+</div>
+
+<ThreadTimeline class="compact" name="reentrancy" :step="$clicks" />
+
+</div>
+
+<!--
+Spinner off. (beat) But wait. With latest wins, two loads can run at the same time.
+I click preset A. It hops to a worker. Spinner on.
+
+[click]
+Then I click B. A gets close(). And we just saw: that's only a request. A is still loading while B already runs.
+
+[click]
+Then A sees the stop and unwinds. On Main. Its ScopeExit does its job: loading false. But B is still loading. (beat)
+The ScopeExit isn't wrong. The flag just isn't A's. It's the app's.
+Main still runs one thing at a time. No data races. But at every co_await, someone else can get a turn. Swift calls this actor reentrancy.
+
+[click]
+So each load takes its own share. beginLoading() counts up. busy's destructor counts down. Only its own.
+
+[click]
+A starts: one. B starts: two. A unwinds: one. Spinner stays on. B is done: zero.
+Same RAII. It just gives back exactly what it took.
+-->
+
+---
 
 # Teardown
 
@@ -1560,7 +1625,7 @@ Right now the queue is empty. So Main sleeps. In the destructor.
 loadSamples on the worker sees the stop between two files. It ends with just_stopped(). That "stopped" is posted into Main's queue. And that wakes Main up.
 
 [click]
-Now drain() picks it up. loadPreset is never resumed. Its frame is destroyed, the ScopeExit turns the spinner off.
+Now drain() picks it up. loadPreset is never resumed. Its frame is destroyed, busy gives back its share, the spinner goes off.
 And look where this happens: on top of ~Plugin(). (pause)
 
 [click]
