@@ -34,6 +34,9 @@ export interface TimelineSignal {
 
 export interface TimelinePanel {
   title: string
+  at?: number
+  // Distance between lanes in SVG units (default 92).
+  gap?: number
   lanes: string[]
   length: number
   blocks: TimelineBlock[]
@@ -148,6 +151,65 @@ export const timelines: Record<string, Timeline> = {
         ],
         signals: [
           { from: ['Main', 1.85], to: ['Worker', 1.85], label: 'close()', at: 1 },
+        ],
+      },
+    ],
+  },
+  teardown: {
+    legend: { a: 'loadPreset', stopping: 'stopped · unwinding', other: '~Plugin()', blocked: 'Main blocked' },
+    labels: [
+      'Host destroys the plugin',
+      'close(), then wait',
+      'Deadlock',
+      'Wait and drain the queue',
+      'Unwound on Main · done',
+    ],
+    captions: [],
+    panels: [
+      {
+        title: 'Just wait',
+        lanes: ['Main', 'Worker'],
+        gap: 150,
+        length: 6,
+        blocks: [
+          { lane: 'Worker', from: 0, to: 2.6, kind: 'a', label: 'load' },
+          { lane: 'Worker', from: 1.3, to: 2.6, kind: 'stopping', at: 1 },
+          { lane: 'Main', from: 0.6, to: 1.3, kind: 'other', label: '~Plugin' },
+          { lane: 'Main', from: 1.3, to: 6, kind: 'blocked', label: 'wait', at: 1 },
+          { lane: 'Main:queue', from: 2.8, to: 3.3, kind: 'a', label: '~A', at: 2 },
+          { lane: 'Main:queue', from: 2.8, to: 3.3, kind: 'stopping', at: 2 },
+        ],
+        hops: [
+          { from: ['Worker', 2.6], to: ['Main:queue', 2.8], kind: 'a', at: 2 },
+        ],
+        signals: [
+          { from: ['Main', 1.3], to: ['Worker', 1.3], label: 'close()', at: 1 },
+          { from: ['Main:queue', 3.05], to: ['Main', 3.05], at: 2 },
+        ],
+      },
+      {
+        title: 'Wait and drain',
+        at: 3,
+        lanes: ['Main', 'Worker'],
+        gap: 150,
+        length: 6,
+        blocks: [
+          { lane: 'Worker', from: 0, to: 2.6, kind: 'a', label: 'load' },
+          { lane: 'Worker', from: 1.3, to: 2.6, kind: 'stopping' },
+          { lane: 'Main', from: 0.6, to: 1.3, kind: 'other', label: '~Plugin' },
+          { lane: 'Main', from: 1.3, to: 3.0, kind: 'other', label: 'drain' },
+          { lane: 'Main:queue', from: 2.8, to: 3.2, kind: 'a', label: '~A' },
+          { lane: 'Main:queue', from: 2.8, to: 3.2, kind: 'stopping' },
+          { lane: 'Main', from: 3.4, to: 4.2, kind: 'a', label: '~A', at: 4 },
+          { lane: 'Main', from: 3.4, to: 4.2, kind: 'stopping', at: 4 },
+          { lane: 'Main', from: 4.4, to: 4.9, kind: 'other', label: 'return', at: 4 },
+        ],
+        hops: [
+          { from: ['Worker', 2.6], to: ['Main:queue', 2.8], kind: 'a' },
+          { from: ['Main:queue', 3.2], to: ['Main', 3.4], kind: 'a', at: 4 },
+        ],
+        signals: [
+          { from: ['Main', 1.3], to: ['Worker', 1.3], label: 'close()' },
         ],
       },
     ],

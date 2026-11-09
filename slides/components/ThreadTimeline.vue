@@ -23,12 +23,24 @@ const top = 44
 const unit = 48
 const blockWidth = 46
 
-const width = (p: TimelinePanel) => side * 2 + (p.lanes.length - 1) * laneGap
+const queueWidth = 30
+const gap = (p: TimelinePanel) => p.gap ?? laneGap
+
+const width = (p: TimelinePanel) => side * 2 + (p.lanes.length - 1) * gap(p)
 const height = (p: TimelinePanel) => top + p.length * unit + 18
-const laneX = (p: TimelinePanel, lane: string) => side + p.lanes.indexOf(lane) * laneGap
+// "Main:queue" is not a lane: it is Main's queue, a narrow box right next to Main's lane.
+const isQueue = (lane: string) => lane.endsWith(':queue')
+const laneX = (p: TimelinePanel, lane: string): number => isQueue(lane)
+  ? laneX(p, lane.slice(0, -':queue'.length)) + blockWidth / 2 + 22 + queueWidth / 2
+  : side + p.lanes.indexOf(lane) * gap(p)
+const halfWidth = (lane: string) => (isQueue(lane) ? queueWidth : blockWidth) / 2
 const y = (t: number) => top + t * unit
 const shown = (at?: number, until?: number) => (at ?? 0) <= props.step && (until === undefined || props.step < until)
 const vertical = (b: { from: number, to: number, label?: string }) => b.to - b.from >= 2 && (b.label?.length ?? 0) > 3
+
+// Signals run left to right or right to left; they start and end at block edges.
+const dir = (p: TimelinePanel, sg: { from: [string, number], to: [string, number] }): number =>
+  laneX(p, sg.to[0]) >= laneX(p, sg.from[0]) ? 1 : -1
 
 function hopPath(p: TimelinePanel, from: [string, number], to: [string, number]) {
   const x1 = laneX(p, from[0])
@@ -52,7 +64,7 @@ const colors: Record<BlockKind, string> = {
 <template>
   <div class="thread-timeline">
     <div class="tt-panels">
-      <div v-for="(p, pi) in timeline.panels" :key="p.title" class="tt-panel" :style="{ flex: p.lanes.length }">
+      <div v-for="(p, pi) in timeline.panels" :key="p.title" class="tt-panel tt-item" :style="{ flex: p.lanes.length, opacity: shown(p.at) ? 1 : 0 }">
         <div class="tt-title">{{ p.title }}</div>
         <svg :viewBox="`0 0 ${width(p)} ${height(p)}`" preserveAspectRatio="xMidYMin meet">
           <defs>
@@ -86,9 +98,17 @@ const colors: Record<BlockKind, string> = {
             :d="hopPath(p, h.from, h.to)" :stroke="colors[h.kind]" :marker-end="`url(#tt-arrow-${pi}-${h.kind})`"
           />
 
+          <!-- A queued item gets a dashed inbox around it, labelled "queue". -->
+          <g v-for="(b, i) in p.blocks.filter(b => isQueue(b.lane) && b.kind !== 'stopping')" :key="'q' + i"
+            class="tt-item" :class="{ hidden: !shown(b.at, b.until) }">
+            <rect class="tt-queue" :x="laneX(p, b.lane) - queueWidth / 2 - 4" :y="y(b.from) - 4"
+              :width="queueWidth + 8" :height="(b.to - b.from) * unit + 8" rx="6" />
+            <text class="tt-queue-label" :x="laneX(p, b.lane)" :y="y(b.to) + 13">queue</text>
+          </g>
+
           <rect
             v-for="(b, i) in p.blocks" :key="i" class="tt-item" :class="{ hidden: !shown(b.at, b.until) }"
-            :x="laneX(p, b.lane) - blockWidth / 2" :y="y(b.from)" :width="blockWidth" :height="(b.to - b.from) * unit"
+            :x="laneX(p, b.lane) - halfWidth(b.lane)" :y="y(b.from)" :width="halfWidth(b.lane) * 2" :height="(b.to - b.from) * unit"
             :rx="Math.min(9, (b.to - b.from) * unit / 2)"
             :fill="b.kind === 'blocked' ? `url(#tt-hatch-${pi})` : b.kind === 'stopping' ? `url(#tt-stopping-${pi})` : colors[b.kind]"
             :stroke="b.kind === 'blocked' ? colors.blocked : 'none'" stroke-width="1.2"
@@ -108,8 +128,8 @@ const colors: Record<BlockKind, string> = {
           <g v-for="(sg, i) in p.signals ?? []" :key="'sig' + i" class="tt-item" :class="{ hidden: !shown(sg.at, sg.until) }">
             <line
               class="tt-signal"
-              :x1="laneX(p, sg.from[0]) + blockWidth / 2 + 2" :y1="y(sg.from[1])"
-              :x2="laneX(p, sg.to[0]) - blockWidth / 2 - 3" :y2="y(sg.to[1])"
+              :x1="laneX(p, sg.from[0]) + dir(p, sg) * (halfWidth(sg.from[0]) + 2)" :y1="y(sg.from[1])"
+              :x2="laneX(p, sg.to[0]) - dir(p, sg) * (halfWidth(sg.to[0]) + 3)" :y2="y(sg.to[1])"
               :stroke="colors.blocked" :marker-end="`url(#tt-signal-${pi})`"
             />
             <text
@@ -218,6 +238,19 @@ const colors: Record<BlockKind, string> = {
   stroke-width: 1.4;
 }
 
+.tt-queue {
+  fill: none;
+  stroke: #6a6a6a;
+  stroke-dasharray: 3 2;
+  stroke-width: 1;
+}
+
+.tt-queue-label {
+  fill: var(--slide-muted);
+  font-size: 7.5px;
+  text-anchor: middle;
+}
+
 .tt-signal {
   stroke-width: 2;
 }
@@ -272,6 +305,9 @@ const colors: Record<BlockKind, string> = {
 .tt-legend i.b { background: #9b6bff; }
 .tt-legend i.other { background: #3a3a3a; }
 .tt-legend i.ok { background: #5fe08f; }
+.tt-legend i.stopping {
+  background: repeating-linear-gradient(45deg, rgba(0, 0, 0, 0.5) 0 2px, #fe4f00 2px 5px);
+}
 .tt-legend i.blocked {
   background: repeating-linear-gradient(45deg, rgba(255, 79, 168, 0.55) 0 2px, rgba(255, 79, 168, 0.16) 2px 5px);
   border: 1px solid #ff4fa8;

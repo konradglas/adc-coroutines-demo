@@ -1613,26 +1613,26 @@ clicks: 4
 
 # Inside <code>close_and_wait()</code>
 
-<CallStacks scenario="teardown" :step="$clicks" :slots="7" code-size="0.6rem" />
+<ThreadTimeline name="teardown" :step="$clicks" />
 
 <!--
-Let's look inside. The host destroys the plugin, and a preset is still loading on the worker.
-Here's close_and_wait(), simplified.
+The host destroys the plugin. And a preset is still loading, on the worker.
 
 [click]
-It requests stop. And then it doesn't just block. It runs a small event loop of its own: drain Main's queue, then sleep until someone posts something.
-Right now the queue is empty. So Main sleeps. In the destructor.
+~Plugin calls close(). That's only a request. So the simplest thing: just wait until the load is gone. Main blocks right there.
 
 [click]
-loadSamples on the worker sees the stop between two files. It ends with just_stopped(). That "stopped" is posted into Main's queue. And that wakes Main up.
+The load sees the stop and ends. Now loadPreset has to unwind. Destroy its frame, run its ScopeExit.
+But where? On Main. It's a MainActorTask. It always comes back to Main, even to unwind. That's the whole point.
+So the unwind goes into Main's queue. And Main? Main is blocked, waiting for exactly this. (beat)
+Main waits for the task. The task waits for Main. Deadlock.
 
 [click]
-Now drain() picks it up. loadPreset is never resumed. Its frame is destroyed, busy gives back its share, the spinner goes off.
-And look where this happens: on top of ~Plugin(). (pause)
+So close_and_wait() doesn't just wait. While it waits, it runs Main's queue itself. Drain, then sleep until someone posts something.
 
 [click]
-Now everything is joined. The loop ends, and the destructor returns to the host.
-So, to sum up: close_and_wait() asks everything to stop, and then drains Main's queue right there in the destructor, until every task has unwound. When it returns, nothing of ours is left running.
+The unwind lands in the queue, that wakes Main up, and the drain runs it. Right there, inside ~Plugin. busy gives back its share, the spinner goes off.
+Nothing left. Now the destructor returns to the host.
 -->
 
 ---
