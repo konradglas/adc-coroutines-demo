@@ -1831,7 +1831,7 @@ affine::MainActorTask<void> loadPreset(Preset preset) {
     app.setLoading(true);
     ScopeExit finish([&] { app.setLoading(false); });
 
-    auto instrument = co_await starts_on(workers,
+    auto instrument = co_await stdexec::starts_on(workers,
         prepareInstrument(preset));
     sampler.installInstrument(instrument);
 
@@ -1839,7 +1839,7 @@ affine::MainActorTask<void> loadPreset(Preset preset) {
     if (!location)
         co_return;
 
-    auto samples = co_await starts_on(workers, loadSamples(*location));
+    auto samples = co_await stdexec::starts_on(workers, loadSamples(*location));
     sampler.installSamples(samples);
 }
 ```
@@ -1853,13 +1853,18 @@ affine::MainActorTask<void> loadPreset(Preset preset) {
 - [konradglas/stdexec-affine](https://github.com/konradglas/stdexec-affine)
 - [NVIDIA/stdexec](https://github.com/NVIDIA/stdexec)
 
+<div class="qr-card">
+  <img src="/qr-stdexec-affine.svg" alt="QR code: github.com/konradglas/stdexec-affine">
+  <span>stdexec-affine</span>
+</div>
+
 </div>
 </div>
 
 <!--
 So this is where we ended up. It's the function we started with: the synchronous one. Same order. RAII is back. The early return is correct again.
 But it doesn't block, and it knows where it runs.
-(beat) Thank you! The demo and the library are on GitHub. Questions?
+(beat) Thank you! The demo and the library are on GitHub. Scan the code for the library: there's also a few talks I can recommend. Questions?
 -->
 
 ---
