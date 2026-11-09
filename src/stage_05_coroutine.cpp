@@ -42,7 +42,7 @@ int main() {
     auto loading = affine::spawn(
         loadPreset(app, sampler, demo::concertGrand(), workers.get_scheduler()), scope);
     hostQueue.pumpUntil([&] { return loading.completed(); });
-    scope.shutdown_and_wait();
+    scope.close_and_wait();
 
     return app.qaCheck("Concert Grand", sampler) ? 0 : 1;
 }
