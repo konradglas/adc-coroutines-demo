@@ -36,6 +36,20 @@ function stackOf(thread: string) {
   return { frames, padding }
 }
 
+// Legend: only the frame kinds this scenario uses, in a fixed order.
+const legendLabels: Partial<Record<FrameKind, string>> = {
+  loop: 'host · OS',
+  call: 'our code',
+  executor: 'executor',
+  resume: 'resume()',
+  body: 'coroutine body',
+  block: 'heavy work',
+}
+const legend = computed(() => {
+  const used = new Set(steps.value.flatMap(st => Object.values(st.threads).flat().map(f => parse(f).kind)))
+  return (Object.keys(legendLabels) as FrameKind[]).filter(k => used.has(k)).map(k => ({ kind: k, label: legendLabels[k] }))
+})
+
 function statusOf(thread: string) {
   const frames = stackOf(thread).frames
   const override = active.value.status?.[thread]
@@ -73,6 +87,9 @@ watchEffect(async () => {
       <div class="cs-caption">
         <span class="cs-step">{{ index + 1 }} / {{ steps.length }}</span>
         <p :class="{ label: active.label }">{{ active.label ?? active.caption }}</p>
+        <div class="cs-legend">
+          <span v-for="l in legend" :key="l.kind" class="cs-frame" :class="l.kind">{{ l.label }}</span>
+        </div>
       </div>
     </div>
 
@@ -179,6 +196,19 @@ watchEffect(async () => {
   font-size: 1.05rem;
   line-height: 1.4;
   margin: 0.3rem 0 0;
+}
+
+.cs-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 1.1rem;
+}
+
+.cs-legend .cs-frame {
+  font-size: 0.55rem;
+  height: 1.1rem;
+  line-height: 1.1rem;
 }
 
 .cs-step {

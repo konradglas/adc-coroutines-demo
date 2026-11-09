@@ -26,10 +26,10 @@ export const badgeScenarios: Record<string, { lines: BadgeLine[] }> = {
   },
   mainActor: {
     lines: [
-      { code: 'MainActorTask<void> loadPreset(Preset preset) {' },
+      { code: 'affine::MainActorTask<void> loadPreset(Preset preset) {' },
       { code: '  app.setLoading(true);', badge: '?', then: { badge: 'Main', at: 1 } },
       { code: '  ScopeExit finish([&] { app.setLoading(false); });', badge: '?', then: { badge: 'Main', at: 1 } },
-      { code: '  auto instrument = co_await starts_on(workers, prepareInstrument(preset));', badge: '?', then: { badge: 'Main', at: 1 } },
+      { code: '  auto instrument = co_await stdexec::starts_on(workers, prepareInstrument(preset));', badge: '?', then: { badge: 'Main', at: 1 } },
       { code: '  sampler.install(instrument);', badge: '?', then: { badge: 'Main', at: 1 } },
       { code: '  auto location =' },
       { code: '      co_await askUserToLocateSamples();', badge: '?', then: { badge: 'Main', at: 1 } },

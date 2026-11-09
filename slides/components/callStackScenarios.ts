@@ -599,9 +599,9 @@ export const scenarios: Record<string, CallStackScenario> = {
       "  }",
       "}",
       "",
-      "MainActorTask<void> loadPreset(Preset preset) {",
+      "affine::MainActorTask<void> loadPreset(Preset preset) {",
       "  auto busy = app.beginLoading();",
-      "  auto samples = co_await starts_on(workers, loadSamples(preset));",
+      "  auto samples = co_await stdexec::starts_on(workers, loadSamples(preset));",
       "  sampler.installSamples(samples);",
       "}",
     ],
@@ -719,9 +719,9 @@ export const scenarios: Record<string, CallStackScenario> = {
   affine: {
     threads: ["Main", "Worker"],
     code: [
-      "MainActorTask<void> loadPreset(Preset preset) {",
+      "affine::MainActorTask<void> loadPreset(Preset preset) {",
       "  app.setLoading(true);",
-      "  auto instrument = co_await starts_on(workers,",
+      "  auto instrument = co_await stdexec::starts_on(workers,",
       "      prepareInstrument(preset));",
       "  sampler.install(instrument);",
       "  app.setLoading(false);",

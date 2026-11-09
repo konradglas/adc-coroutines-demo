@@ -598,7 +598,7 @@ void loadPreset(App& app, Sampler& sampler,
 <div v-else>
 
 ```cpp
-task<void> loadPreset(App& app, Sampler& sampler,
+stdexec::task<void> loadPreset(App& app, Sampler& sampler,
                 Preset preset, bool& finished) {
     app.setLoading(true);
     ScopeExit finish([&] {
@@ -608,7 +608,7 @@ task<void> loadPreset(App& app, Sampler& sampler,
     });
     app.loadMixerState(preset);
     auto mixer = app.mixerSnapshot();
-    auto instrument = co_await starts_on(workers,
+    auto instrument = co_await stdexec::starts_on(workers,
         prepareInstrument(preset, mixer));
     sampler.installInstrument(instrument);
     keySwitches.load(preset);
@@ -616,7 +616,7 @@ task<void> loadPreset(App& app, Sampler& sampler,
         sampler.missingSamples());
     if (!location)
         co_return;
-    auto samples = co_await starts_on(workers, loadSamples(*location));
+    auto samples = co_await stdexec::starts_on(workers, loadSamples(*location));
     sampler.installSamples(std::move(samples));
 }
 ```
@@ -648,6 +648,7 @@ And this non-blocking version has a name: it's a coroutine.
 
 [click]
 Quick note on what I'm using: starts_on and friends are from std::execution, new in C++26. I use stdexec, its reference implementation. Plus a bit of extra work on top, for the things I found missing. More on that at the end.
+So you'll see three namespaces. stdexec: that's std::execution, what's in the standard. exec: extras that come with stdexec, but aren't in the standard. Thread pools, for example. And affine: that's mine.
 -->
 
 ---
@@ -683,7 +684,7 @@ ScopeExit finish([&] {
     finished = true;
 });
 
-auto instrument = co_await starts_on(workers,
+auto instrument = co_await stdexec::starts_on(workers,
     prepareInstrument(preset, mixer));
 
 sampler.installInstrument(instrument);
@@ -744,8 +745,8 @@ void loadPreset(...) {
 <div class="eyebrow">Coroutine</div>
 
 ```cpp {none|1|2-3|5}
-task<void> loadPreset(...) {
-    auto instrument = co_await starts_on(workers,
+stdexec::task<void> loadPreset(...) {
+    auto instrument = co_await stdexec::starts_on(workers,
         prepareInstrument(...));
     // ...
     co_return;
@@ -1126,11 +1127,11 @@ So: the way home is now part of the type. MainActorTask always comes back to Mai
 <div>
 
 ```cpp
-MainActorTask<void> loadPreset(...) {
+affine::MainActorTask<void> loadPreset(...) {
     app.setLoading(true);
     app.loadMixerState(preset);
 
-    auto instrument = co_await starts_on(workers,
+    auto instrument = co_await stdexec::starts_on(workers,
         prepareInstrument(...));
 
     sampler.installInstrument(instrument);
@@ -1169,11 +1170,11 @@ Only the heavy part leaves. prepareInstrument goes to the worker. Everything els
 <div>
 
 ```cpp {none|2,3,7-9|all}
-MainActorTask<void> loadPreset(...) {
+affine::MainActorTask<void> loadPreset(...) {
     app.setLoading(true);
     auto mixer = app.mixerSnapshot();
 
-    auto instrument = co_await starts_on(workers, prepareInstrument(...));
+    auto instrument = co_await stdexec::starts_on(workers, prepareInstrument(...));
 
     sampler.installInstrument(instrument);
     keySwitches.load(preset);
@@ -1205,17 +1206,17 @@ Only the heavy part leaves. And it comes back home with its result.
 <div class="structured-celebration-code">
 
 ```cpp
-MainActorTask<void> loadPreset(...) {
+affine::MainActorTask<void> loadPreset(...) {
     ScopeExit finish([&] { app.setLoading(false); });
 
-    auto instrument = co_await starts_on(workers, prepareInstrument(...));
+    auto instrument = co_await stdexec::starts_on(workers, prepareInstrument(...));
     sampler.installInstrument(instrument);
 
     auto location = co_await askUserToLocateSamples(...);
     if (!location)
         co_return;
 
-    auto samples = co_await starts_on(workers, loadSamples(*location));
+    auto samples = co_await stdexec::starts_on(workers, loadSamples(*location));
     sampler.installSamples(samples);
 }
 ```
@@ -1254,9 +1255,9 @@ And structured: every child finishes before its parent continues. Nothing escape
 <div class="eyebrow">Inside the coroutine tree</div>
 
 ```cpp
-MainActorTask<void> loadPreset(...) {
-    auto instrument = co_await starts_on(workers, prepareInstrument(...));
-    auto samples = co_await starts_on(workers, loadSamples(...));
+affine::MainActorTask<void> loadPreset(...) {
+    auto instrument = co_await stdexec::starts_on(workers, prepareInstrument(...));
+    auto samples = co_await stdexec::starts_on(workers, loadSamples(...));
     // beautifully owned by the parent task
 }
 ```
@@ -1312,6 +1313,8 @@ std::execution has the building block for that: counting_scope. My root_scope is
 -->
 
 ---
+hide: true
+---
 
 # One root coroutine
 
@@ -1320,7 +1323,7 @@ class Plugin {
     affine::root_scope root;
     Channel<Preset> presetRequests;
 
-    MainActorTask<void> run() {
+    affine::MainActorTask<void> run() {
         for (;;) {
             auto preset = co_await presetRequests.receive();
             co_await loadPreset(preset);
@@ -1355,7 +1358,7 @@ In the destructor: one close_and_wait().
 
 ---
 
-# Or: one task per request
+# One task per request
 
 <div v-show="$clicks < 4">
 
@@ -1400,7 +1403,7 @@ class Plugin {
 <span v-click="4" style="display: none"></span>
 
 <!--
-The other way: one task per request. Same callback as before. We just give the task a home.
+There's more than one way to do this. One: a single root coroutine for the whole plugin, and the callbacks send it requests. I'll show you another one: one task per request. Same callback as before. We just give the task a home.
 
 [click]
 One scope: the root_scope.
@@ -1424,12 +1427,12 @@ So: every task has an owner. Inside the tree, that's the parent. At the boundary
 <div>
 
 ```cpp {all|9|2-4|1}{at:2}
-MainActorTask<void> loadPreset(...) {
+affine::MainActorTask<void> loadPreset(...) {
     ScopeExit finish([&] {
         app.setLoading(false);
     });
 
-    auto samples = co_await starts_on(workers,
+    auto samples = co_await stdexec::starts_on(workers,
         loadSamples(...));
 
     sampler.installSamples(std::move(samples));
@@ -1440,11 +1443,11 @@ MainActorTask<void> loadPreset(...) {
 <div>
 
 ```cpp {all|4-5}{at:1}
-Task<Samples> loadSamples(...) {
-    auto stop = co_await read_env(get_stop_token);
+stdexec::task<Samples> loadSamples(...) {
+    auto stop = co_await stdexec::read_env(stdexec::get_stop_token);
     for (auto& file : files) {
         if (stop.stop_requested())
-            co_await just_stopped();
+            co_await stdexec::just_stopped();
         samples.add(readFile(file));
     }
     co_return samples;
@@ -1555,32 +1558,31 @@ Same RAII. It just gives back exactly what it took.
 <div class="code-compare scope-close-compare">
 <div v-click="1" class="scope-close-card child-close-card">
 
-<div class="eyebrow">Stop one operation during normal use</div>
+<div class="eyebrow">One task · latest wins</div>
 
 ```cpp
 loading.close();
 ```
 
 <div v-click="2" class="close-effects">
-  <span>request stop for this task</span>
-  <span>return immediately</span>
-  <span>leave the executor open</span>
+  <span>stop requested</span>
+  <span>returns at once</span>
+  <span>other tasks keep running</span>
 </div>
 
 </div>
 <div v-click="3" class="scope-close-card root-close-card">
 
-<div class="eyebrow">The plugin is going away</div>
+<div class="eyebrow">Everything · plugin goes away</div>
 
 ```cpp
 root.close_and_wait();
 ```
 
 <div v-click="4" class="close-effects">
-  <span>request stop for everything</span>
-  <span>wait until all have unwound</span>
-  <span>then destroy frames</span>
-  <span>runs the remaining tasks on Main</span>
+  <span>stop requested for all tasks</span>
+  <span>returns when all have unwound</span>
+  <span>nothing of ours left running</span>
 </div>
 
 </div>
@@ -1591,17 +1593,17 @@ root.close_and_wait();
 So there are two ways to stop.
 
 [click]
-During normal use, we stop one operation: loading.close().
+The one we just saw: loading.close(). Latest wins.
 
 [click]
-That requests stop for this one task, and returns immediately. It doesn't wait. Everything else keeps running.
+It requests stop for this one task, and returns at once. It doesn't wait. Everything else keeps running.
 
 [click]
 Now the other one. The plugin is going away: root.close_and_wait().
-Then we have to make sure that nothing will ever call into our plugin again. All our work on the worker threads is joined, and nothing is left half done.
+After that, nothing may ever call into our plugin again. No work left on the workers. Nothing half done.
 
 [click]
-It requests stop for everything, and waits right there, until every task has unwound.
+It requests stop for every task. And then it waits, right there, until every task has unwound.
 (beat) But our tasks resume on Main. And Main is stuck in this destructor. So how do they ever finish? Let's look inside.
 -->
 
@@ -1751,11 +1753,11 @@ void loadPreset(Preset preset) {
 <div>
 
 ```cpp
-MainActorTask<void> loadPreset(Preset preset) {
+affine::MainActorTask<void> loadPreset(Preset preset) {
     app.setLoading(true);
     ScopeExit finish([&] { app.setLoading(false); });
 
-    auto instrument = co_await starts_on(workers, prepareInstrument(preset));
+    auto instrument = co_await stdexec::starts_on(workers, prepareInstrument(preset));
     sampler.installInstrument(instrument);
     keySwitches.load(preset);
 
@@ -1763,7 +1765,7 @@ MainActorTask<void> loadPreset(Preset preset) {
     if (!location)
         co_return;
 
-    auto samples = co_await starts_on(workers, loadSamples(*location));
+    auto samples = co_await stdexec::starts_on(workers, loadSamples(*location));
     sampler.installSamples(samples);
     app.notifyPresetLoaded();
 }
@@ -1825,7 +1827,7 @@ And then, one more message from QA. Unasked, this time.
 <div>
 
 ```cpp
-MainActorTask<void> loadPreset(Preset preset) {
+affine::MainActorTask<void> loadPreset(Preset preset) {
     app.setLoading(true);
     ScopeExit finish([&] { app.setLoading(false); });
 
