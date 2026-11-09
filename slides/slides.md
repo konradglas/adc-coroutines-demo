@@ -630,7 +630,8 @@ stdexec::task<void> loadPreset(App& app, Sampler& sampler,
 <span v-click="3" style="display: none"></span>
 
 <div v-click="4" class="stdexec-note">
-  built on <code>stdexec</code> · <code>std::execution</code>, C++26 · plus a little of my own
+  <span><code>stdexec::</code> std::execution, C++26</span>
+  <span><code>affine::</code> mine</span>
 </div>
 
 <!--
@@ -648,7 +649,7 @@ And this non-blocking version has a name: it's a coroutine.
 
 [click]
 Quick note on what I'm using: starts_on and friends are from std::execution, new in C++26. I use stdexec, its reference implementation. Plus a bit of extra work on top, for the things I found missing. More on that at the end.
-So you'll see three namespaces. stdexec: that's std::execution, what's in the standard. exec: extras that come with stdexec, but aren't in the standard. Thread pools, for example. And affine: that's mine.
+So you'll see two namespaces. stdexec: that's std::execution, what's in the standard. And affine: that's mine.
 -->
 
 ---
