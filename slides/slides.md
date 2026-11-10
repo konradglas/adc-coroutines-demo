@@ -1164,7 +1164,7 @@ Only the heavy part leaves. prepareInstrument goes to the worker. Everything els
 
 ---
 
-# The cozy part: everything on Main
+# You are home ☕
 
 <div class="code-compare actor-safety">
 <div>
