@@ -980,7 +980,6 @@ clicks: 4
   <h3>Conceptual only: not real-time safe</h3>
   <span>frame freed on the audio thread</span>
   <span>the queue must be lock-free</span>
-  <span>everything after the <code>co_await</code> runs in the audio callback</span>
 </div>
 
 <!--
@@ -1000,7 +999,7 @@ It's the same as the executor. Just without the wakeup.
 
 [click]
 (beat) One honest note: this is really just conceptual. As written, this is not real-time safe.
-When the coroutine ends, its frame is freed on the audio thread. The queue we hop into has to be lock-free. And everything after the co_await runs inside the audio callback.
+When the coroutine ends, its frame is freed on the audio thread. The queue we hop into has to be lock-free.
 So: a nice picture of polling. Not something to copy into your audio code.
 -->
 
