@@ -5,7 +5,9 @@
     "dev": "slidev",
     "build": "slidev build",
     "export": "slidev export --output dist/adc-coroutines.pdf",
-    "export:clicks": "slidev export --with-clicks --output dist/adc-coroutines-clicks.pdf"
+    "export:clicks": "slidev export --with-clicks --output dist/adc-coroutines-clicks.pdf",
+    "dev:company": "slidev company.md",
+    "export:company": "slidev export company.md --with-clicks --output dist/company-clicks.pdf"
   },
   "devDependencies": {
     "@slidev/cli": "52.19.1",

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 const props = defineProps<{
-  from: 'QA' | 'Developer'
+  from: 'QA' | 'Developer' | 'Manager' | 'Health inspector'
 }>()
 </script>
 
